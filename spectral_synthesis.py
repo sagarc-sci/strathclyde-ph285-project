@@ -5,8 +5,9 @@ from functools import cache
 
 
 LOG = logging.getLogger(__name__)
-LOG.addHandler(logging.StreamHandler(sys.stderr))
 LOG.setLevel(logging.INFO)
+if not LOG.hasHandlers():
+    LOG.addHandler(logging.StreamHandler(sys.stderr))
 
 
 class Particle(object):
@@ -212,7 +213,7 @@ class BoundBoundAbsorption(Transition):
                 * self.gaunt_factor(wavelength, cell))
 
 
-class OscillatorStrengths(object):
+class OscillatorStrength(object):
     def __init__(self, filename):
         self.dataset = pandas.read_csv(filename)
 
@@ -238,6 +239,16 @@ class OscillatorStrengths(object):
 class Cell(object):
     def opacity(self, wavelength: float|numpy.ndarray) -> float|numpy.ndarray:
         return NotImplemented
+    
+    def __mul__(self, other):
+        # Convinience method to invoke opacity on a vector of wavelengths
+        # without having to vectorise the Cell matrix
+        if isinstance(other, (float, numpy.floating, numpy.ndarray)):
+            return self.opacity(other)
+        return NotImplemented
+    
+    def __rmul__(self, other):
+        return self.__mul__(other)
 
 
 class EmptyCell(Cell):
@@ -289,14 +300,14 @@ class DenseCell(Cell):
                  for element, ions in ions_of_element.items()
                  for ion in ions)
         electron_number_density = 0.
-        electron_density_converged = False
+        has_electron_density_converged = False
         constant_term = 2 * ((2 * numpy.pi * scipy.constants.m_e * scipy.constants.k) ** 1.5) / (scipy.constants.h ** 3)
         for iteration in range(max_iterations):
             updated_electron_number_density = sum(ion.charge * ion_number_density
                                                   for ion, ion_number_density in ion_number_densities.items())
             if numpy.isclose(electron_number_density, updated_electron_number_density, rtol=max_electron_density_error):
                 electron_number_density = updated_electron_number_density
-                electron_density_converged = True
+                has_electron_density_converged = True
                 break
             electron_number_density = updated_electron_number_density
             for element, ions in ions_of_element.items():
@@ -310,7 +321,7 @@ class DenseCell(Cell):
                                   / sum(ion_number_densities[ion] for ion in ions))
                 for ion in ions:
                     ion_number_densities[ion] *= scaling_factor
-        if not electron_density_converged:
+        if not has_electron_density_converged:
             LOG.warning('Electron number density did not converge')
 
         return ion_number_densities, electron_number_density
@@ -388,7 +399,7 @@ class BlackBodySource(Source):
     PLANCK_RADIANCE_CONSTANT_TERM: float = 2 * scipy.constants.h * scipy.constants.c ** 2
     WIEN_DISPLACEMENT_CONSTANT_TERM: float = 2.897e-3
 
-    def __init__(self, temperature: float, wavelength_bounding_box_scaling_factors: tuple[float, float]=(0.1, 8), excess: float=2.5):
+    def __init__(self, temperature: float, wavelength_bounding_box_scaling_factors: tuple[float, float]=(0.1, 8), excess: float=5.):
         self.temperature: float = temperature
         self.wavelength_bounding_box_scaling_factors: tuple[float, float] = wavelength_bounding_box_scaling_factors
         self.excess: float = excess
@@ -396,11 +407,11 @@ class BlackBodySource(Source):
         self.planck_radiance_exponent_constant_term: float = numpy.exp(scipy.constants.h * scipy.constants.c / (scipy.constants.k * temperature))
 
         # Wien's Displacement Law
-        self.wavelength_at_max_spectral_radiance: float = self.WIEN_DISPLACEMENT_CONSTANT_TERM / temperature
-        self.max_spectral_radiance: float = self.spectral_radiance(self.wavelength_at_max_spectral_radiance)
+        self.wavelength_at_max_radiance: float = self.WIEN_DISPLACEMENT_CONSTANT_TERM / temperature
+        self.max_spectral_radiance: float = self.spectral_radiance(self.wavelength_at_max_radiance)
 
     def spectral_radiance(self, wavelength: float) -> float:
-        return (self.PLANCK_RADIANCE_CONSTANT_TERM / ((self.planck_radiance_exponent_constant_term ** (1 / wavelength)) - 1))
+        return (self.PLANCK_RADIANCE_CONSTANT_TERM / (wavelength ** 5 * ((self.planck_radiance_exponent_constant_term ** (1 / wavelength)) - 1)))
 
     def photons(self, sample_size: int) -> numpy.ndarray:
         sample_size_with_excess = int(sample_size * self.excess)
@@ -410,7 +421,7 @@ class BlackBodySource(Source):
         allowed_radiance = self.spectral_radiance(wavelengths)
         allowed_wavelengths = wavelengths[radiance < allowed_radiance]
         LOG.info(f'Sampled {sample_size_with_excess} photons; accepted {allowed_wavelengths.size}; required {sample_size}')
-        return allowed_wavelengths
+        return allowed_wavelengths[0:sample_size]
 
 
 class SphericalVolumetricSource(Source):
@@ -419,8 +430,9 @@ class SphericalVolumetricSource(Source):
         self.half_angular_span: float = half_angular_span
     
     def photons(self, sample_size: int) -> numpy.ndarray:
-        angular_direction = numpy.random.uniform(-self.half_angular_span, self.half_angular_span, sample_size)
-        return numpy.vstack((self.source.photons(sample_size),
+        wavelengths = self.source.photons(sample_size)
+        angular_direction = numpy.random.uniform(-self.half_angular_span, self.half_angular_span, wavelengths.shape)
+        return numpy.vstack((wavelengths,
                              numpy.cos(angular_direction),
                              numpy.sin(angular_direction))).T
 
@@ -436,21 +448,21 @@ class Volume(object):
 
         self.atmosphere_cells = self.atmosphere.cells(self.grid_size)
 
-    def updated_position_vector(self, step: int=None, previous_position: float|numpy.ndarray=None) -> float|numpy.ndarray:
+    def positions(self, photons: numpy.ndarray, steps: int|numpy.ndarray=None, previous_positions: float|numpy.ndarray=None) -> float|numpy.ndarray:
         return NotImplemented
     
-    def cell(self, position_vector: float|numpy.ndarray) -> Cell|numpy.ndarray:
+    def cells(self, positions: float|numpy.ndarray) -> Cell|numpy.ndarray:
         return NotImplemented
     
 
 class PlanarVolume(Volume):
-    def updated_position_vector(self, step: int|numpy.ndarray=None, previous_position: float|numpy.ndarray=None) -> float|numpy.ndarray:
-        return self.source_span + self.grid_size * step if step is not None else previous_position + self.grid_size
+    def positions(self, photons: numpy.ndarray, steps: int|numpy.ndarray=None, previous_positions: float|numpy.ndarray=None) -> float|numpy.ndarray:
+        return self.source_span + self.grid_size * steps if steps is not None else previous_positions + self.grid_size
     
-    def cell(self, position_vector: float|numpy.ndarray) -> Cell|numpy.ndarray:
-        return numpy.where(position_vector > self.source_span + self.atmosphere.thickness,
+    def cells(self, positions: float|numpy.ndarray) -> Cell|numpy.ndarray:
+        return numpy.where((positions < self.source_span) & (positions > (self.source_span + self.atmosphere.thickness)),
                            self.EMPTY_CELL,
-                           self.atmosphere_cells[int((position_vector - self.source_span)/self.grid_size)])
+                           self.atmosphere_cells[numpy.asarray((positions - self.source_span)/self.grid_size, dtype=int)])
 
 
 class SphericalVolume(Volume):
@@ -459,52 +471,165 @@ class SphericalVolume(Volume):
 
         super().__init__(SphericalVolumetricSource(source, self.source_half_angular_span), source_span, atmosphere, grid_size)
 
-    def updated_position_vector(self, photons: numpy.ndarray, step: int|numpy.ndarray=None, previous_position: numpy.ndarray=None) -> numpy.ndarray:
+    def positions(self, photons: numpy.ndarray, steps: int|numpy.ndarray=None, previous_positions: numpy.ndarray=None) -> numpy.ndarray:
         direction_vectors = photons[:, 1:]
         
-        if step is not None:
+        if steps is not None:
             initial_vectors = direction_vectors[:, 1::-1]
             upper_hemisphere_vectors = initial_vectors[:, 0] < 0
             initial_vectors[upper_hemisphere_vectors][0] *= -1
             initial_vectors[~upper_hemisphere_vectors][1] *= -1
-            return self.source_span * initial_vectors + (self.grid_size * step) * direction_vectors
+            return self.source_span * initial_vectors + (self.grid_size * steps) * direction_vectors
         else:
-            return previous_position + self.grid_size * direction_vectors
+            return previous_positions + self.grid_size * direction_vectors
     
-    def cell(self, position_vector: numpy.ndarray) -> Cell|numpy.ndarray:
-        radial_distance = numpy.linalg.norm(position_vector, axis=1)
-        return numpy.where(radial_distance > self.source_span + self.atmosphere.thickness,
+    def cells(self, positions: numpy.ndarray) -> Cell|numpy.ndarray:
+        radial_distances = numpy.linalg.norm(positions, axis=-1)
+        return numpy.where((radial_distances < self.source_span) & (radial_distances > (self.source_span + self.atmosphere.thickness)),
                            self.EMPTY_CELL,
-                           self.atmosphere_cells[numpy.asarray((radial_distance - self.source_span)/self.grid_size, dtype=int)])
+                           self.atmosphere_cells[numpy.asarray((radial_distances - self.source_span)/self.grid_size, dtype=int)])
 
 
 if __name__ == '__main__':
-    oscillator_strengths = OscillatorStrengths('oscillator_strengths.csv')
+    import argparse, os
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-p', '--file-prefix')
+    parser.add_argument('-x', '--skip-simulation', action='store_true')
+    args = parser.parse_args()
 
-    electron = Particle('e', 0, 1, -1)
-    particles = set()
-    transitions = set([ThomsonScattering(electron, electron), FreeFreeAbsorption(electron, electron)])
+    from matplotlib import pyplot
 
-    hydrogen_excitations = [Particle(f'H{i}', 1, i, 0) for i in range(1, 11)]
-    hydrogen_ion = Particle('H+', 1, 1, 1)
+    # Setup default figure size and use LaTeX for text formatting
+    pyplot.rc('figure', figsize=[12, 8], dpi=144)
+    pyplot.rc('text', usetex=True)
 
-    for particle in itertools.chain(hydrogen_excitations, [hydrogen_ion]):
-        particles.add(particle)
+    if not args.skip_simulation:
+        # Load oscillator strength lookup table
+        oscillator_strength = OscillatorStrength('oscillator_strengths.csv')
 
-    for i in range(len(hydrogen_excitations) - 1):
-        for j in range(i + 1, len(hydrogen_excitations)):
-            transitions.add(BoundBoundAbsorption(hydrogen_excitations[i],
-                                                 hydrogen_excitations[j],
-                                                 oscillator_strengths.value(hydrogen_excitations[i].protons,
-                                                                            hydrogen_excitations[i].charge,
-                                                                            hydrogen_excitations[i].quantum_number,
-                                                                            hydrogen_excitations[j].quantum_number)))
-    for excitation in hydrogen_excitations:
-        transitions.add(BoundFreeAbsorption(excitation, hydrogen_ion))
-    
-    zero_gradient = lambda r: numpy.zeros_like(r) if isinstance(r, numpy.ndarray) else 0.
-    atmosphere = Atmosphere(electron, particles, transitions, {hydrogen_excitations[0]: 1.},
-                            0.33, zero_gradient, zero_gradient, core_density=1e20, core_temperature=20000)
-    source = BlackBodySource(20000)
-    planar_volume = PlanarVolume(source, 0.66, atmosphere, 0.03)
-    spherical_volume = SphericalVolume(source, 0.66, atmosphere, 0.03)
+        # Setup a pure Hydrogen atmosphere and light-matter interactions
+        electron = Particle('e', 0, 1, -1)
+        particles = set()
+        transitions = set([ThomsonScattering(electron, electron), FreeFreeAbsorption(electron, electron)])
+
+        hydrogen_excitations = [Particle(f'H{i}', 1, i, 0) for i in range(1, 11)]
+        hydrogen_ion = Particle('H+', 1, 1, 1)
+
+        for particle in itertools.chain(hydrogen_excitations, [hydrogen_ion]):
+            particles.add(particle)
+
+        for i in range(len(hydrogen_excitations) - 1):
+            for j in range(i + 1, len(hydrogen_excitations)):
+                transitions.add(BoundBoundAbsorption(hydrogen_excitations[i],
+                                                    hydrogen_excitations[j],
+                                                    oscillator_strength.value(hydrogen_excitations[i].protons,
+                                                                                hydrogen_excitations[i].charge,
+                                                                                hydrogen_excitations[i].quantum_number,
+                                                                                hydrogen_excitations[j].quantum_number)))
+        for excitation in hydrogen_excitations:
+            transitions.add(BoundFreeAbsorption(excitation, hydrogen_ion))
+        
+        # Setup temperature and density gradients and initialise atmosphere
+        zero_gradient = lambda r: numpy.zeros_like(r) if isinstance(r, numpy.ndarray) else 0.
+        atmosphere_thickness = 0.33
+        grid_size = 0.003
+        atmosphere = Atmosphere(electron, particles, transitions, {hydrogen_excitations[0]: 1.},
+                                atmosphere_thickness, zero_gradient, zero_gradient, core_density=1e20, core_temperature=20000)
+        
+        # Setup a Black Body radiation source with same temperature as at inner boundary of atmosphere
+        source = BlackBodySource(20000)
+
+        # Setup grid geometry
+        # Uncomment lines below to simulate plane parallel atmosphere (and comment the ones for spherical geometry)
+
+        # Plane parallel atmosphere
+        #volume = PlanarVolume(source, 0.66, atmosphere, grid_size)
+        #steps = numpy.arange(0, int(atmosphere_thickness/grid_size) + 1, 1)[:, numpy.newaxis]
+        
+        # Spherical atmosphere
+        volume = SphericalVolume(source, 0.66, atmosphere, grid_size)
+        steps = numpy.arange(0, int(atmosphere_thickness/grid_size) + 1, 1)[:, numpy.newaxis, numpy.newaxis]
+
+        # Begin Monte-Carlo simulation
+
+        # Generate photons
+        input_photons = volume.source.photons(1000000)
+
+        # Handle previously chosen geometry
+        is_directional_photon = len(input_photons.shape) > 1
+
+        if is_directional_photon:
+            input_wavelengths = input_photons[:, 0]
+            input_directions = input_photons[:, 2] # Extract sine of angular direction
+        else:
+            input_wavelengths = input_photons
+            input_directions = None
+        
+        # Save input photons
+        numpy.save(f'{args.file_prefix}-input-wavelengths.npy', input_wavelengths)
+        if is_directional_photon:
+            numpy.save(f'{args.file_prefix}-input-directions.npy', input_directions)
+
+        # For each photon calculate the position vector at each step
+        # Result: (step, photon, co-ordinates)
+        positions = volume.positions(input_photons, steps=steps)
+
+        # Map the position vectors to grid cells
+        # Result: (step, photon, cell)
+        cells = volume.cells(positions)
+
+        # For each wavelength calculate opacity it experiences at that step
+        # Result: (step, photon, opacity)
+        opacities = cells * input_wavelengths
+
+        # Sample probabilities of absorption for each photon at each step
+        # Result: (step, photon, absorption probability)
+        # Collapse along step axis to check if photon is absorbed at any step
+        # Result: (photon, is absorbed?)
+        is_absorbed = numpy.any(numpy.random.random(opacities.shape) < opacities, axis=0)
+
+        # Gather surviving photons
+        output_photons = input_photons[~is_absorbed]
+
+        # Extract surviving wavelengths (and directions at origin)
+        if is_directional_photon:
+            output_wavelengths = output_photons[:, 0]
+            output_directions = output_photons[:, 2]
+        else:
+            output_wavelengths = output_photons
+            output_directions = None
+
+        # Save output photons
+        numpy.save(f'{args.file_prefix}-output-wavelengths.npy', output_wavelengths)
+        if is_directional_photon:
+            numpy.save(f'{args.file_prefix}-output-directions.npy', output_directions)
+    else:
+        is_directional_photon = False
+        input_directions = None
+        output_directions = None
+        input_wavelengths = numpy.load(f'{args.file_prefix}-input-wavelengths.npy')
+        output_wavelengths = numpy.load(f'{args.file_prefix}-output-wavelengths.npy')
+        if os.path.exists(f'{args.file_prefix}-input-directions.npy'):
+            is_directional_photon = True
+            input_directions = numpy.load(f'{args.file_prefix}-input-directions.npy')
+            output_directions = numpy.load(f'{args.file_prefix}-output-directions.npy')
+
+    # Analyse results and plot
+
+    # Plot the emission spectrum
+    pyplot.figure(1)
+    pyplot.hist(input_wavelengths, 1000, label=r'$Black~Body~Spectrum$')
+
+    # Overlay the absorption spectrum
+    pyplot.hist(output_wavelengths, 1000, label=r'$Atmospheric~Spectrum$')
+    pyplot.legend()
+    pyplot.show()
+
+    # Obtain and plot relative intensities
+    input_intensity, bin_edges = numpy.histogram(input_wavelengths, bins=1000)
+    output_intensity, output_bin_edges = numpy.histogram(output_wavelengths, bins=bin_edges)
+    relative_intensity = output_intensity / input_intensity
+    relative_intensity[numpy.isnan(relative_intensity)] = 1.
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    pyplot.figure(2)
+    pyplot.plot(bin_centers * 1e9, relative_intensity)
