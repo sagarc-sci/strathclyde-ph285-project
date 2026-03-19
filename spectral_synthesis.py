@@ -409,6 +409,36 @@ class Atmosphere(object):
                 for i in range(cell_positions.size)])
 
 
+class Gradient(object):
+    def value(self, position: float|numpy.ndarray) -> float|numpy.ndarray:
+        return NotImplemented
+
+    def __call__(self, position: float|numpy.ndarray) -> float|numpy.ndarray:
+        return self.value(position)
+
+
+class LinearGradient(Gradient):
+    def __init__(self, initial_value, final_value, length):
+        self.slope = (final_value - initial_value) / length
+
+    def value(self, position: float|numpy.ndarray) -> float|numpy.ndarray:
+        return numpy.full_like(position, self.slope) if isinstance(position, numpy.ndarray) else self.slope
+
+
+class ZeroGradient(LinearGradient):
+    def __init__(self):
+        self.slope = 0.
+
+
+class ExponentialGradient(Gradient):
+    def __init__(self, initial_value, final_value, length):
+        self.exponent = numpy.log(final_value/initial_value) / length
+        self.coefficient = initial_value * self.exponent
+
+    def value(self, position: float|numpy.ndarray) -> float|numpy.ndarray:
+        return self.coefficient * numpy.exp(self.exponent * position)
+
+
 class Source(object):
     def photons(self, sample_size: int) -> numpy.ndarray:
         return NotImplemented
@@ -553,11 +583,37 @@ if __name__ == '__main__':
             transitions.add(BoundFreeAbsorption(excitation, hydrogen_ion))
         
         # Setup temperature and density gradients and initialise atmosphere
-        zero_gradient = lambda r: numpy.zeros_like(r) if isinstance(r, numpy.ndarray) else 0.
         atmosphere_thickness = run_config["atmosphere"]["thickness"]
-        grid_size = 0.003
+
+        if run_config["atmosphere"]["density_gradient"] == "zero":
+            density_gradient = ZeroGradient()
+        elif run_config["atmosphere"]["density_gradient"] == "linear":
+            density_gradient = LinearGradient(run_config["atmosphere"]["core_density"],
+                                              run_config["atmosphere"]["surface_density"],
+                                              atmosphere_thickness)
+        elif run_config["atmosphere"]["density_gradient"] == "exponential":
+            density_gradient = ExponentialGradient(run_config["atmosphere"]["core_density"],
+                                              run_config["atmosphere"]["surface_density"],
+                                              atmosphere_thickness)
+        else:
+            raise ValueError(f'Unknown gradient type for density: {run_config["atmosphere"]["density_gradient"]}')
+
+        if run_config["atmosphere"]["temperature_gradient"] == "zero":
+            temperature_gradient = ZeroGradient()
+        elif run_config["atmosphere"]["temperature_gradient"] == "linear":
+            temperature_gradient = LinearGradient(run_config["atmosphere"]["core_temperature"],
+                                              run_config["atmosphere"]["surface_temperature"],
+                                              atmosphere_thickness)
+        elif run_config["atmosphere"]["temperature_gradient"] == "exponential":
+            temperature_gradient = ExponentialGradient(run_config["atmosphere"]["core_temperature"],
+                                              run_config["atmosphere"]["surface_temperature"],
+                                              atmosphere_thickness)
+        else:
+            raise ValueError(f'Unknown gradient type for temperature: {run_config["atmosphere"]["temperature_gradient"]}')
+        
+        grid_size = run_config["geometry"]["grid_size"]
         atmosphere = Atmosphere(electron, particles, transitions, {hydrogen_excitations[0]: 1.},
-                                atmosphere_thickness, zero_gradient, zero_gradient,
+                                atmosphere_thickness, density_gradient, temperature_gradient,
                                 core_density=run_config["atmosphere"]["core_density"],
                                 core_temperature=run_config["atmosphere"]["core_temperature"])
         
