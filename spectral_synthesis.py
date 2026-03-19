@@ -625,11 +625,34 @@ if __name__ == '__main__':
     pyplot.legend()
     pyplot.show()
 
+    if is_directional_photon:
+        # Plot directional intensities from source
+        pyplot.figure(2)
+        pyplot.hist(input_directions, 1000, label=r'$Source$')
+
+        # Overlay directional intensities past atmosphere
+        pyplot.hist(output_directions, 1000, label=r'$Atmosphere$')
+        pyplot.legend()
+        pyplot.show()
+
     # Obtain and plot relative intensities
-    input_intensity, bin_edges = numpy.histogram(input_wavelengths, bins=1000)
-    output_intensity, output_bin_edges = numpy.histogram(output_wavelengths, bins=bin_edges)
-    relative_intensity = output_intensity / input_intensity
-    relative_intensity[numpy.isnan(relative_intensity)] = 1.
-    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-    pyplot.figure(2)
-    pyplot.plot(bin_centers * 1e9, relative_intensity)
+    def relative_intensity(input_signal: numpy.ndarray, output_signal: numpy.ndarray, bins: int=1000) -> tuple[numpy.ndarray, numpy.ndarray]:
+        input_intensity, bin_edges = numpy.histogram(input_signal, bins=bins)
+        output_intensity, output_bin_edges = numpy.histogram(output_signal, bins=bin_edges)
+        intensity_ratio = output_intensity / input_intensity
+        intensity_ratio[numpy.isnan(intensity_ratio)] = 1.
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        return bin_centers, intensity_ratio
+    
+    # Plot relative intensity at each wavelength to demonstrate absorption in atmosphere
+    wavelength_bins, relative_intensity_at_wavelength = relative_intensity(input_wavelengths, output_wavelengths)
+    pyplot.figure(3)
+    pyplot.plot(wavelength_bins * 1e9, relative_intensity_at_wavelength)
+    pyplot.show()
+
+    if is_directional_photon:
+        # Plot relative intensity in each direction to demonstrate Limb Darkening
+        direction_bins, relative_intensity_in_direction = relative_intensity(input_directions, output_directions)
+        pyplot.figure(4)
+        pyplot.plot(direction_bins, relative_intensity_in_direction)
+        pyplot.show()
