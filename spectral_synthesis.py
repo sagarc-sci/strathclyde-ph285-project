@@ -11,6 +11,12 @@ if not LOG.hasHandlers():
 
 
 class Particle(object):
+    '''
+        Model a charged particle that can interact with photons
+        
+        Interactions are modelled by adding transitions that can move the particle
+        to a different excitation or ionisation
+    '''
     def __init__(self, sybmol: str, protons: int, quantum_number: int, charge: int):
         self.symbol: str = sybmol
         self.protons: int = protons
@@ -81,11 +87,24 @@ class Particle(object):
     
     @cache
     def degeneracy(self) -> float:
+        '''
+            Returns degeneracy of quantum number describing the current state
+
+            For Hydrogenic species with a single electron described using quantum number n,
+            degeneracy is 2 * n^2
+        '''
         # Only true for Hydrogenic species
         return 2 * self.quantum_number ** 2
     
     @cache
     def ionisation_energy(self) -> float:
+        '''
+            Returns ionisation energy of this particle
+
+            This is the same as negative of electron energy state
+            For Hydrogenic species with single electron,
+            ionisation energy, X = R_inf * (Z^2 / n^2)
+        '''
         # Only true for Hydrogenic species
         return scipy.constants.physical_constants['Rydberg constant times hc in J'][0] * (self.protons / self.quantum_number) ** 2
 
@@ -437,7 +456,7 @@ class SphericalVolumetricSource(Source):
                              numpy.sin(angular_direction))).T
 
 
-class Volume(object):
+class Geometry(object):
     EMPTY_CELL = EmptyCell()
 
     def __init__(self, source: 'Source', source_span: float, atmosphere: 'Atmosphere', grid_size: float):
@@ -455,7 +474,7 @@ class Volume(object):
         return NotImplemented
     
 
-class PlanarVolume(Volume):
+class PlanarGeometry(Geometry):
     def positions(self, photons: numpy.ndarray, steps: int|numpy.ndarray=None, previous_positions: float|numpy.ndarray=None) -> float|numpy.ndarray:
         return self.source_span + self.grid_size * steps if steps is not None else previous_positions + self.grid_size
     
@@ -465,7 +484,7 @@ class PlanarVolume(Volume):
                            self.atmosphere_cells[numpy.asarray((positions - self.source_span)/self.grid_size, dtype=int)])
 
 
-class SphericalVolume(Volume):
+class SphericalGeometry(Geometry):
     def __init__(self, source, source_span, atmosphere, grid_size):
         self.source_half_angular_span = numpy.arcsin(source_span / (source_span + atmosphere.thickness))
 
@@ -491,7 +510,7 @@ class SphericalVolume(Volume):
 
 
 if __name__ == '__main__':
-    import argparse, os
+    import argparse, os, json
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--file-prefix')
     parser.add_argument('-x', '--skip-simulation', action='store_true')
@@ -502,6 +521,10 @@ if __name__ == '__main__':
     # Setup default figure size and use LaTeX for text formatting
     pyplot.rc('figure', figsize=[12, 8], dpi=144)
     pyplot.rc('text', usetex=True)
+
+    # Load run configuration
+    with open(f'{args.file_prefix}-config.json', 'r') as fyle:
+        run_config = json.load(fyle)
 
     if not args.skip_simulation:
         # Load oscillator strength lookup table
@@ -531,29 +554,30 @@ if __name__ == '__main__':
         
         # Setup temperature and density gradients and initialise atmosphere
         zero_gradient = lambda r: numpy.zeros_like(r) if isinstance(r, numpy.ndarray) else 0.
-        atmosphere_thickness = 0.33
+        atmosphere_thickness = run_config["atmosphere"]["thickness"]
         grid_size = 0.003
         atmosphere = Atmosphere(electron, particles, transitions, {hydrogen_excitations[0]: 1.},
-                                atmosphere_thickness, zero_gradient, zero_gradient, core_density=1e20, core_temperature=20000)
+                                atmosphere_thickness, zero_gradient, zero_gradient,
+                                core_density=run_config["atmosphere"]["core_density"],
+                                core_temperature=run_config["atmosphere"]["core_temperature"])
         
         # Setup a Black Body radiation source with same temperature as at inner boundary of atmosphere
-        source = BlackBodySource(20000)
+        source = BlackBodySource(run_config["source"]["temperature"])
 
         # Setup grid geometry
-        # Uncomment lines below to simulate plane parallel atmosphere (and comment the ones for spherical geometry)
-
-        # Plane parallel atmosphere
-        #volume = PlanarVolume(source, 0.66, atmosphere, grid_size)
-        #steps = numpy.arange(0, int(atmosphere_thickness/grid_size) + 1, 1)[:, numpy.newaxis]
-        
-        # Spherical atmosphere
-        volume = SphericalVolume(source, 0.66, atmosphere, grid_size)
-        steps = numpy.arange(0, int(atmosphere_thickness/grid_size) + 1, 1)[:, numpy.newaxis, numpy.newaxis]
+        if run_config["geometry"]["type"] == "spherical":
+            # Spherical atmosphere
+            geometry = SphericalGeometry(source, 0.66, atmosphere, grid_size)
+            steps = numpy.arange(0, int(atmosphere_thickness/grid_size) + 1, 1)[:, numpy.newaxis, numpy.newaxis]
+        else:
+            # Plane parallel atmosphere
+            geometry = PlanarGeometry(source, 0.66, atmosphere, grid_size)
+            steps = numpy.arange(0, int(atmosphere_thickness/grid_size) + 1, 1)[:, numpy.newaxis]
 
         # Begin Monte-Carlo simulation
 
         # Generate photons
-        input_photons = volume.source.photons(1000000)
+        input_photons = geometry.source.photons(run_config["source"]["photons"])
 
         # Handle previously chosen geometry
         is_directional_photon = len(input_photons.shape) > 1
@@ -572,11 +596,11 @@ if __name__ == '__main__':
 
         # For each photon calculate the position vector at each step
         # Result: (step, photon, co-ordinates)
-        positions = volume.positions(input_photons, steps=steps)
+        positions = geometry.positions(input_photons, steps=steps)
 
         # Map the position vectors to grid cells
         # Result: (step, photon, cell)
-        cells = volume.cells(positions)
+        cells = geometry.cells(positions)
 
         # For each wavelength calculate opacity it experiences at that step
         # Result: (step, photon, opacity)
