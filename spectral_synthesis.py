@@ -1256,9 +1256,19 @@ if __name__ == '__main__':
     if is_directional_photon:
         # Plot relative intensity in each direction to demonstrate Limb Darkening
         direction_bins, relative_intensity_in_direction = relative_intensity(numpy.arcsin(input_directions), numpy.arcsin(output_directions))
+        
+        # Fit a linear model to show the average trend of relative intensity with angle
+        def linear_model(x, a, b):
+            return a * x + b
+        fit_params, fit_errors = scipy.optimize.curve_fit(linear_model, direction_bins, relative_intensity_in_direction, p0=(0.005, 0.95))
+        fit_values = linear_model(direction_bins, *fit_params)
+        
         pyplot.figure(4)
         pyplot.title(r'$Relative~Intensity~at~Angle$')
         pyplot.xlabel(r'$Angle~(rad)$')
         pyplot.ylabel(r'$\frac{I_{atm}}{I_{bb}}~(dimensionless)$')
-        pyplot.plot(direction_bins, relative_intensity_in_direction)
+        pyplot.plot(direction_bins, relative_intensity_in_direction, label=r'$Measured~Ratio$')
+        pyplot.plot(direction_bins, fit_values, color='r', label=f'$Linear~Trend~(m = {fit_params[0]:.5f})$')
+        pyplot.axhline(fit_params[-1], color='k', linestyle='--', alpha=0.25)
+        pyplot.legend()
         pyplot.show()
