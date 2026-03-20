@@ -925,7 +925,13 @@ class SphericalVolumetricSource(Source):
         '''
 
         wavelengths = self.source.photons(sample_size)
-        angular_direction = numpy.random.uniform(-self.half_angular_span, self.half_angular_span, wavelengths.shape)
+
+        # Generate direction vectors spanning half the total angular span
+        # to take advantage of symmetry and integrate over twice the photons
+        # along a given direction
+        #angular_direction = numpy.random.uniform(0, self.half_angular_span, wavelengths.shape)
+        angular_direction = numpy.random.uniform(- self.half_angular_span, 0, wavelengths.shape)
+
         return numpy.vstack((wavelengths,
                              numpy.cos(angular_direction),
                              numpy.sin(angular_direction))).T
@@ -947,7 +953,7 @@ class Geometry(object):
         self.atmosphere: 'Atmosphere' = atmosphere
         self.grid_size: float = grid_size
 
-        self.atmosphere_cells = self.atmosphere.cells(self.grid_size)
+        self.atmosphere_cells = numpy.hstack(([self.EMPTY_CELL], self.atmosphere.cells(self.grid_size)))
 
     def positions(self, photons: numpy.ndarray, steps: int|numpy.ndarray=None, previous_positions: float|numpy.ndarray=None) -> float|numpy.ndarray:
         return NotImplemented
@@ -975,9 +981,11 @@ class PlanarGeometry(Geometry):
             Returns cells at photon positions
         '''
         
-        return numpy.where((positions < self.source_span) & (positions > (self.source_span + self.atmosphere.thickness)),
-                           self.EMPTY_CELL,
-                           self.atmosphere_cells[numpy.asarray((positions - self.source_span)/self.grid_size, dtype=int)])
+        cell_indices = numpy.where((positions < self.source_span)
+                                   | (positions >= (self.source_span + self.atmosphere.thickness)),
+                                   0,
+                                   numpy.asarray(1 + (positions - self.source_span) / self.grid_size, dtype=int))
+        return self.atmosphere_cells[cell_indices]
 
 
 class SphericalGeometry(Geometry):
@@ -1010,10 +1018,11 @@ class SphericalGeometry(Geometry):
             # with photon at origin - not the center of source
             # Use trigonometry to calculate initial position vectors
             # given the direction vectors
-            initial_vectors = direction_vectors[:, 1::-1]
-            upper_hemisphere_vectors = initial_vectors[:, 0] < 0
-            initial_vectors[upper_hemisphere_vectors][0] *= -1
-            initial_vectors[~upper_hemisphere_vectors][1] *= -1
+            initial_vectors = numpy.zeros_like(direction_vectors)
+            initial_vectors[:, 0] = numpy.abs(direction_vectors[:, 1])
+            initial_vectors[:, 1] = numpy.where(direction_vectors[:, 1] < 0,
+                                                direction_vectors[:, 0],
+                                                - direction_vectors[:, 0])
             return self.source_span * initial_vectors + (self.grid_size * steps) * direction_vectors
         else:
             return previous_positions + self.grid_size * direction_vectors
@@ -1027,9 +1036,11 @@ class SphericalGeometry(Geometry):
         '''
 
         radial_distances = numpy.linalg.norm(positions, axis=-1)
-        return numpy.where((radial_distances < self.source_span) & (radial_distances > (self.source_span + self.atmosphere.thickness)),
-                           self.EMPTY_CELL,
-                           self.atmosphere_cells[numpy.asarray((radial_distances - self.source_span)/self.grid_size, dtype=int)])
+        cell_indices = numpy.where((radial_distances < self.source_span)
+                                   | (radial_distances >= (self.source_span + self.atmosphere.thickness)),
+                                   0,
+                                   numpy.asarray(1 + (radial_distances - self.source_span) / self.grid_size, dtype=int))
+        return self.atmosphere_cells[cell_indices]
 
 
 if __name__ == '__main__':
@@ -1117,11 +1128,15 @@ if __name__ == '__main__':
         if run_config["geometry"]["type"] == "spherical":
             # Spherical atmosphere
             geometry = SphericalGeometry(source, 0.66, atmosphere, grid_size)
-            steps = numpy.arange(0, int(atmosphere_thickness/grid_size) + 1, 1)[:, numpy.newaxis, numpy.newaxis]
+            steps = numpy.arange(0,
+                                 (int(atmosphere_thickness
+                                      / (grid_size * numpy.cos(geometry.source_half_angular_span)))
+                                      + 1),
+                                      1)[:, numpy.newaxis, numpy.newaxis]
         else:
             # Plane parallel atmosphere
             geometry = PlanarGeometry(source, 0.66, atmosphere, grid_size)
-            steps = numpy.arange(0, int(atmosphere_thickness/grid_size) + 1, 1)[:, numpy.newaxis]
+            steps = numpy.arange(0, int(atmosphere_thickness / grid_size) + 1, 1)[:, numpy.newaxis]
 
         # Begin Monte-Carlo simulation
 
