@@ -731,6 +731,7 @@ class Atmosphere(object):
             to instantiate and return Cells
         '''
 
+        # Integrate gradients at centers of each grid
         cell_positions = numpy.arange(0, self.thickness, grid_size) + (grid_size / 2)
 
         temperature_delta = self.temperature_gradient(cell_positions) * grid_size
@@ -929,8 +930,7 @@ class SphericalVolumetricSource(Source):
         # Generate direction vectors spanning half the total angular span
         # to take advantage of symmetry and integrate over twice the photons
         # along a given direction
-        #angular_direction = numpy.random.uniform(0, self.half_angular_span, wavelengths.shape)
-        angular_direction = numpy.random.uniform(- self.half_angular_span, 0, wavelengths.shape)
+        angular_direction = numpy.random.uniform(0, self.half_angular_span, wavelengths.shape)
 
         return numpy.vstack((wavelengths,
                              numpy.cos(angular_direction),
@@ -1091,29 +1091,33 @@ if __name__ == '__main__':
 
         if run_config["atmosphere"]["density_gradient"] == "zero":
             density_gradient = ZeroGradient()
-        elif run_config["atmosphere"]["density_gradient"] == "linear":
-            density_gradient = LinearGradient(run_config["atmosphere"]["core_density"],
-                                              run_config["atmosphere"]["surface_density"],
-                                              atmosphere_thickness)
-        elif run_config["atmosphere"]["density_gradient"] == "exponential":
-            density_gradient = ExponentialGradient(run_config["atmosphere"]["core_density"],
-                                              run_config["atmosphere"]["surface_density"],
-                                              atmosphere_thickness)
         else:
-            raise ValueError(f'Unknown gradient type for density: {run_config["atmosphere"]["density_gradient"]}')
+            if run_config["atmosphere"]["density_gradient"] == "constant":
+                density_gradient_type = ConstantGradient
+            elif run_config["atmosphere"]["density_gradient"] == "linear":
+                density_gradient_type = LinearGradient
+            elif run_config["atmosphere"]["density_gradient"] == "exponential":
+                density_gradient_type = ExponentialGradient
+            else:
+                raise ValueError(f'Unknown gradient type for density: {run_config["atmosphere"]["density_gradient"]}')
+            density_gradient = density_gradient_type(run_config["atmosphere"]["core_density"],
+                                              run_config["atmosphere"]["surface_density"],
+                                              atmosphere_thickness)
 
         if run_config["atmosphere"]["temperature_gradient"] == "zero":
             temperature_gradient = ZeroGradient()
-        elif run_config["atmosphere"]["temperature_gradient"] == "linear":
-            temperature_gradient = LinearGradient(run_config["atmosphere"]["core_temperature"],
-                                              run_config["atmosphere"]["surface_temperature"],
-                                              atmosphere_thickness)
-        elif run_config["atmosphere"]["temperature_gradient"] == "exponential":
-            temperature_gradient = ExponentialGradient(run_config["atmosphere"]["core_temperature"],
-                                              run_config["atmosphere"]["surface_temperature"],
-                                              atmosphere_thickness)
         else:
-            raise ValueError(f'Unknown gradient type for temperature: {run_config["atmosphere"]["temperature_gradient"]}')
+            if run_config["atmosphere"]["temperature_gradient"] == "constant":
+                temperature_gradient_type = ConstantGradient
+            elif run_config["atmosphere"]["temperature_gradient"] == "linear":
+                temperature_gradient_type = LinearGradient
+            elif run_config["atmosphere"]["temperature_gradient"] == "exponential":
+                temperature_gradient_type = ExponentialGradient
+            else:
+                raise ValueError(f'Unknown gradient type for temperature: {run_config["atmosphere"]["temperature_gradient"]}')
+            temperature_gradient = temperature_gradient_type(run_config["atmosphere"]["core_temperature"],
+                                              run_config["atmosphere"]["surface_temperature"],
+                                              atmosphere_thickness)
         
         grid_size = run_config["geometry"]["grid_size"]
         atmosphere = Atmosphere(electron, particles, transitions, {hydrogen_excitations[0]: 1.},
@@ -1128,6 +1132,8 @@ if __name__ == '__main__':
         if run_config["geometry"]["type"] == "spherical":
             # Spherical atmosphere
             geometry = SphericalGeometry(source, 0.66, atmosphere, grid_size)
+            # Photons with angular direction take longer to reach the observer
+            # Calculate steps factoring the longest distance possible (i.e. at half of angular span)
             steps = numpy.arange(0,
                                  (int(atmosphere_thickness
                                       / (grid_size * numpy.cos(geometry.source_half_angular_span)))
