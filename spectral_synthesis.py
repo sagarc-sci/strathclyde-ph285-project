@@ -1,7 +1,8 @@
-import numpy, scipy, pandas
 import itertools, logging, sys
+import matplotlib, numpy, pandas, scipy
 from collections.abc import Callable
 from functools import cache
+from matplotlib import pyplot
 
 
 LOG = logging.getLogger(__name__)
@@ -960,6 +961,9 @@ class Geometry(object):
     
     def cells(self, positions: float|numpy.ndarray) -> Cell|numpy.ndarray:
         return NotImplemented
+
+    def visualise(self):
+        return NotImplemented
     
 
 class PlanarGeometry(Geometry):
@@ -986,6 +990,30 @@ class PlanarGeometry(Geometry):
                                    0,
                                    numpy.asarray(1 + (positions - self.source_span) / self.grid_size, dtype=int))
         return self.atmosphere_cells[cell_indices]
+    
+    def visualise(self, skip_grids: int=1):
+        '''
+            Draws a diagram showing how grids are laid out relative
+            to the photon source and the atmosphere
+        '''
+
+        figure, axis = pyplot.subplots()
+
+        pyplot.title(r'$Planar~Geometry$')
+        pyplot.ylim(-1, 1)
+        pyplot.xlim(-0.25, 1.5)
+
+        axis.add_patch(matplotlib.patches.Rectangle((0., -0.02), self.source_span, 0.04, fill=True, label=r'$Source$'))
+        axis.add_patch(matplotlib.patches.Rectangle((self.source_span, -0.02), self.atmosphere.thickness, 0.04,
+                                                    fill=False, edgecolor='orange', label=r'$Atmosphere$'))
+
+        cell_positions = self.positions(None, numpy.arange(0, int(self.atmosphere.thickness / self.grid_size) + 1))[::skip_grids]
+        cell_colours = ['r' if cell is not self.EMPTY_CELL else 'k' for cell in self.cells(cell_positions)]
+
+        pyplot.scatter(cell_positions, numpy.zeros_like(cell_positions), color=cell_colours, marker='x', label=r'$Cells$')
+
+        pyplot.legend()
+        pyplot.show()
 
 
 class SphericalGeometry(Geometry):
@@ -1016,14 +1044,21 @@ class SphericalGeometry(Geometry):
         if steps is not None:
             # Direction vectors are towards a point on surface of atmosphere
             # with photon at origin - not the center of source
+            #
             # Use trigonometry to calculate initial position vectors
             # given the direction vectors
-            initial_vectors = numpy.zeros_like(direction_vectors)
-            initial_vectors[:, 0] = numpy.abs(direction_vectors[:, 1])
-            initial_vectors[:, 1] = numpy.where(direction_vectors[:, 1] < 0,
-                                                direction_vectors[:, 0],
-                                                - direction_vectors[:, 0])
-            return self.source_span * initial_vectors + (self.grid_size * steps) * direction_vectors
+            #
+            # r^2 = R^2 + d^2 - 2 R d cos(theta) (constraint: acute triangle)
+            # y = - d sin(theta)
+            #
+            total_span = self.source_span + self.atmosphere.thickness
+            initial_y = (- direction_vectors[:, 1]
+                               * (total_span * direction_vectors[:, 0]
+                                  - numpy.sqrt(self.source_span ** 2
+                                               - (total_span * direction_vectors[:, 1]) ** 2)))
+            initial_x = numpy.sqrt(self.source_span ** 2 - initial_y ** 2)
+            initial_vectors = numpy.vstack([initial_x, initial_y]).T
+            return initial_vectors + (self.grid_size * steps) * direction_vectors
         else:
             return previous_positions + self.grid_size * direction_vectors
     
@@ -1041,6 +1076,40 @@ class SphericalGeometry(Geometry):
                                    0,
                                    numpy.asarray(1 + (radial_distances - self.source_span) / self.grid_size, dtype=int))
         return self.atmosphere_cells[cell_indices]
+    
+    def visualise(self, skip_grids: int=3):
+        '''
+            Draws a diagram showing how grids are laid out relative
+            to the photon source and the atmosphere
+        '''
+
+        figure, axis = pyplot.subplots()
+        axis.set_aspect('equal')
+
+        pyplot.title(r'$Spherical~Geometry$')
+        pyplot.ylim(-1.5, 1.5)
+        pyplot.xlim(-1.5, 1.5)
+
+        axis.add_patch(matplotlib.patches.Circle((0., 0.), radius=self.source_span, fill=True, label=r'$Source$'))
+        axis.add_patch(matplotlib.patches.Circle((0., 0.), radius=self.source_span + self.atmosphere.thickness, fill=False, edgecolor='orange', label=r'$Atmosphere$'))
+
+        steps = numpy.arange(0,
+                             int((self.source_span + self.atmosphere.thickness)
+                                 * numpy.cos(self.source_half_angular_span)
+                                 / self.grid_size) + 1,
+                                 skip_grids)[:, numpy.newaxis, numpy.newaxis]
+        cell_positions = self.positions(numpy.array([[0., 1., 0.],
+                                                     [0., numpy.cos(self.source_half_angular_span), numpy.sin(self.source_half_angular_span)]]),
+                                        steps)
+        cells = self.cells(cell_positions)
+
+        for photon in range(2):
+            cell_colours = ['r' if cell is not self.EMPTY_CELL else 'k' for cell in cells[:, photon]]
+            pyplot.scatter(cell_positions[:,photon,0], cell_positions[:,photon,1],
+                           color=cell_colours, marker='x', label=r'$Cells$' if not photon else None)
+            
+        pyplot.legend()
+        pyplot.show()
 
 
 if __name__ == '__main__':
@@ -1050,8 +1119,6 @@ if __name__ == '__main__':
     parser.add_argument('-x', '--skip-simulation', action='store_true')
     args = parser.parse_args()
 
-    from matplotlib import pyplot
-
     # Setup default figure size and use LaTeX for text formatting
     pyplot.rc('figure', figsize=[12, 8], dpi=144)
     pyplot.rc('text', usetex=True)
@@ -1060,91 +1127,95 @@ if __name__ == '__main__':
     with open(f'{args.file_prefix}-config.json', 'r') as fyle:
         run_config = json.load(fyle)
 
+    # Load oscillator strength lookup table
+    oscillator_strength = OscillatorStrength('oscillator_strengths.csv')
+
+    # Setup a pure Hydrogen atmosphere and light-matter interactions
+    electron = Particle('e', 0, 1, -1)
+    particles = set()
+    transitions = set([ThomsonScattering(electron, electron), FreeFreeAbsorption(electron, electron)])
+
+    hydrogen_excitations = [Particle(f'H{i}', 1, i, 0) for i in range(1, 11)]
+    hydrogen_ion = Particle('H+', 1, 1, 1)
+
+    for particle in itertools.chain(hydrogen_excitations, [hydrogen_ion]):
+        particles.add(particle)
+
+    for i in range(len(hydrogen_excitations) - 1):
+        for j in range(i + 1, len(hydrogen_excitations)):
+            transitions.add(BoundBoundAbsorption(hydrogen_excitations[i],
+                                                hydrogen_excitations[j],
+                                                oscillator_strength.value(hydrogen_excitations[i].protons,
+                                                                            hydrogen_excitations[i].charge,
+                                                                            hydrogen_excitations[i].quantum_number,
+                                                                            hydrogen_excitations[j].quantum_number)))
+    for excitation in hydrogen_excitations:
+        transitions.add(BoundFreeAbsorption(excitation, hydrogen_ion))
+    
+    # Setup temperature and density gradients and initialise atmosphere
+    atmosphere_thickness = run_config["atmosphere"]["thickness"]
+
+    if run_config["atmosphere"]["density_gradient"] == "zero":
+        density_gradient = ZeroGradient()
+    else:
+        if run_config["atmosphere"]["density_gradient"] == "constant":
+            density_gradient_type = ConstantGradient
+        elif run_config["atmosphere"]["density_gradient"] == "linear":
+            density_gradient_type = LinearGradient
+        elif run_config["atmosphere"]["density_gradient"] == "exponential":
+            density_gradient_type = ExponentialGradient
+        else:
+            raise ValueError(f'Unknown gradient type for density: {run_config["atmosphere"]["density_gradient"]}')
+        density_gradient = density_gradient_type(run_config["atmosphere"]["core_density"],
+                                            run_config["atmosphere"]["surface_density"],
+                                            atmosphere_thickness)
+
+    if run_config["atmosphere"]["temperature_gradient"] == "zero":
+        temperature_gradient = ZeroGradient()
+    else:
+        if run_config["atmosphere"]["temperature_gradient"] == "constant":
+            temperature_gradient_type = ConstantGradient
+        elif run_config["atmosphere"]["temperature_gradient"] == "linear":
+            temperature_gradient_type = LinearGradient
+        elif run_config["atmosphere"]["temperature_gradient"] == "exponential":
+            temperature_gradient_type = ExponentialGradient
+        else:
+            raise ValueError(f'Unknown gradient type for temperature: {run_config["atmosphere"]["temperature_gradient"]}')
+        temperature_gradient = temperature_gradient_type(run_config["atmosphere"]["core_temperature"],
+                                            run_config["atmosphere"]["surface_temperature"],
+                                            atmosphere_thickness)
+    
+    atmosphere = Atmosphere(electron, particles, transitions, {hydrogen_excitations[0]: 1.},
+                            atmosphere_thickness, density_gradient, temperature_gradient,
+                            core_density=run_config["atmosphere"]["core_density"],
+                            core_temperature=run_config["atmosphere"]["core_temperature"])
+    
+    # Setup a Black Body radiation source with same temperature as at inner boundary of atmosphere
+    source = BlackBodySource(run_config["source"]["temperature"])
+
+    # Setup grid geometry
+    source_span = run_config["geometry"]["source_span"]
+    grid_size = run_config["geometry"]["grid_size"]
+    if run_config["geometry"]["type"] == "spherical":
+        # Spherical atmosphere
+        geometry = SphericalGeometry(source, source_span, atmosphere, grid_size)
+        geometry.visualise()
+        # Photons with angular direction take longer to reach the observer
+        # Calculate steps factoring the longest distance possible (i.e. at half of angular span)
+        steps = numpy.arange(0,
+                             (int((source_span + atmosphere_thickness)
+                                  * numpy.cos(geometry.source_half_angular_span)
+                                  / grid_size)
+                                  + 1),
+                                  1)[:, numpy.newaxis, numpy.newaxis]
+    else:
+        # Plane parallel atmosphere
+        geometry = PlanarGeometry(source, 0.66, atmosphere, grid_size)
+        geometry.visualise()
+        steps = numpy.arange(0, int(atmosphere_thickness / grid_size) + 1, 1)[:, numpy.newaxis]
+
+    # Begin Monte-Carlo simulation
     if not args.skip_simulation:
-        # Load oscillator strength lookup table
-        oscillator_strength = OscillatorStrength('oscillator_strengths.csv')
-
-        # Setup a pure Hydrogen atmosphere and light-matter interactions
-        electron = Particle('e', 0, 1, -1)
-        particles = set()
-        transitions = set([ThomsonScattering(electron, electron), FreeFreeAbsorption(electron, electron)])
-
-        hydrogen_excitations = [Particle(f'H{i}', 1, i, 0) for i in range(1, 11)]
-        hydrogen_ion = Particle('H+', 1, 1, 1)
-
-        for particle in itertools.chain(hydrogen_excitations, [hydrogen_ion]):
-            particles.add(particle)
-
-        for i in range(len(hydrogen_excitations) - 1):
-            for j in range(i + 1, len(hydrogen_excitations)):
-                transitions.add(BoundBoundAbsorption(hydrogen_excitations[i],
-                                                    hydrogen_excitations[j],
-                                                    oscillator_strength.value(hydrogen_excitations[i].protons,
-                                                                                hydrogen_excitations[i].charge,
-                                                                                hydrogen_excitations[i].quantum_number,
-                                                                                hydrogen_excitations[j].quantum_number)))
-        for excitation in hydrogen_excitations:
-            transitions.add(BoundFreeAbsorption(excitation, hydrogen_ion))
-        
-        # Setup temperature and density gradients and initialise atmosphere
-        atmosphere_thickness = run_config["atmosphere"]["thickness"]
-
-        if run_config["atmosphere"]["density_gradient"] == "zero":
-            density_gradient = ZeroGradient()
-        else:
-            if run_config["atmosphere"]["density_gradient"] == "constant":
-                density_gradient_type = ConstantGradient
-            elif run_config["atmosphere"]["density_gradient"] == "linear":
-                density_gradient_type = LinearGradient
-            elif run_config["atmosphere"]["density_gradient"] == "exponential":
-                density_gradient_type = ExponentialGradient
-            else:
-                raise ValueError(f'Unknown gradient type for density: {run_config["atmosphere"]["density_gradient"]}')
-            density_gradient = density_gradient_type(run_config["atmosphere"]["core_density"],
-                                              run_config["atmosphere"]["surface_density"],
-                                              atmosphere_thickness)
-
-        if run_config["atmosphere"]["temperature_gradient"] == "zero":
-            temperature_gradient = ZeroGradient()
-        else:
-            if run_config["atmosphere"]["temperature_gradient"] == "constant":
-                temperature_gradient_type = ConstantGradient
-            elif run_config["atmosphere"]["temperature_gradient"] == "linear":
-                temperature_gradient_type = LinearGradient
-            elif run_config["atmosphere"]["temperature_gradient"] == "exponential":
-                temperature_gradient_type = ExponentialGradient
-            else:
-                raise ValueError(f'Unknown gradient type for temperature: {run_config["atmosphere"]["temperature_gradient"]}')
-            temperature_gradient = temperature_gradient_type(run_config["atmosphere"]["core_temperature"],
-                                              run_config["atmosphere"]["surface_temperature"],
-                                              atmosphere_thickness)
-        
-        grid_size = run_config["geometry"]["grid_size"]
-        atmosphere = Atmosphere(electron, particles, transitions, {hydrogen_excitations[0]: 1.},
-                                atmosphere_thickness, density_gradient, temperature_gradient,
-                                core_density=run_config["atmosphere"]["core_density"],
-                                core_temperature=run_config["atmosphere"]["core_temperature"])
-        
-        # Setup a Black Body radiation source with same temperature as at inner boundary of atmosphere
-        source = BlackBodySource(run_config["source"]["temperature"])
-
-        # Setup grid geometry
-        if run_config["geometry"]["type"] == "spherical":
-            # Spherical atmosphere
-            geometry = SphericalGeometry(source, 0.66, atmosphere, grid_size)
-            # Photons with angular direction take longer to reach the observer
-            # Calculate steps factoring the longest distance possible (i.e. at half of angular span)
-            steps = numpy.arange(0,
-                                 (int(atmosphere_thickness
-                                      / (grid_size * numpy.cos(geometry.source_half_angular_span)))
-                                      + 1),
-                                      1)[:, numpy.newaxis, numpy.newaxis]
-        else:
-            # Plane parallel atmosphere
-            geometry = PlanarGeometry(source, 0.66, atmosphere, grid_size)
-            steps = numpy.arange(0, int(atmosphere_thickness / grid_size) + 1, 1)[:, numpy.newaxis]
-
-        # Begin Monte-Carlo simulation
 
         # Generate photons
         input_photons = geometry.source.photons(run_config["source"]["photons"])
@@ -1211,7 +1282,7 @@ if __name__ == '__main__':
     # Analyse results and plot
 
     # Plot the emission spectrum
-    pyplot.figure(1)
+    pyplot.figure()
     pyplot.title(r'$Intensity~at~Wavelength$')
     pyplot.xlabel(r'$Wavelength~(m)$')
     pyplot.ylabel(r'$Intensity~(arbitrary~units)$')
@@ -1224,7 +1295,7 @@ if __name__ == '__main__':
 
     if is_directional_photon:
         # Plot directional intensities from source
-        pyplot.figure(2)
+        pyplot.figure()
         pyplot.title(r'$Intensity~at~Angle$')
         pyplot.xlabel(r'$Angle~(rad)$')
         pyplot.ylabel(r'$Intensity~(arbitrary~units)$')
@@ -1246,7 +1317,7 @@ if __name__ == '__main__':
     
     # Plot relative intensity at each wavelength to demonstrate absorption in atmosphere
     wavelength_bins, relative_intensity_at_wavelength = relative_intensity(input_wavelengths, output_wavelengths)
-    pyplot.figure(3)
+    pyplot.figure()
     pyplot.title(r'$Relative~Intensity~at~Wavelength$')
     pyplot.xlabel(r'$Wavelength~(nm)$')
     pyplot.ylabel(r'$\frac{I_{atm}}{I_{bb}}~(dimensionless)$')
@@ -1262,8 +1333,8 @@ if __name__ == '__main__':
             return a * x + b
         fit_params, fit_errors = scipy.optimize.curve_fit(linear_model, direction_bins, relative_intensity_in_direction, p0=(0.005, 0.95))
         fit_values = linear_model(direction_bins, *fit_params)
-        
-        pyplot.figure(4)
+
+        pyplot.figure()
         pyplot.title(r'$Relative~Intensity~at~Angle$')
         pyplot.xlabel(r'$Angle~(rad)$')
         pyplot.ylabel(r'$\frac{I_{atm}}{I_{bb}}~(dimensionless)$')
