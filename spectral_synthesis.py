@@ -1,5 +1,5 @@
 import itertools, logging, sys
-import matplotlib, numpy, pandas, scipy
+import matplotlib, networkx, numpy, pandas, scipy
 from collections.abc import Callable
 from functools import cache
 from matplotlib import pyplot
@@ -751,6 +751,29 @@ class Atmosphere(object):
 
         return numpy.array([DenseCell(self, cell_temperatures[i], cell_densities[i], self.elemental_composition)
                 for i in range(cell_positions.size)])
+    
+    def visualise(self):
+        '''
+            Draws diagrams to visualise atmospheric composition, temperature and density
+        '''
+
+        graph = networkx.MultiDiGraph()
+        for particle in itertools.chain([self.electron], self.particles):
+            graph.add_node(particle.symbol)
+            for transition in particle.outgoing_transitions:
+                graph.add_node(transition.destination.symbol)
+                graph.add_edge(particle.symbol, transition.destination.symbol, key=transition.symbol())
+
+        pyplot.figure()
+        pyplot.title(r'$Particle-Transition~Graph$')
+        positions = networkx.kamada_kawai_layout(graph)
+        node_labels = dict((u, f'${u}$') for u in graph.nodes)
+        edge_labels = dict(((u, v, key), f'$\\sigma_{{{key.lower()}}}$') for u, v, key in graph.edges)
+        networkx.draw(graph, positions, labels=node_labels,
+                      node_color='tab:orange', edge_color='tab:blue', alpha=0.75,
+                      node_size=1000, width=1, linewidths=1)
+        networkx.draw_networkx_edge_labels(graph, positions, edge_labels=edge_labels)
+        pyplot.show()
 
 
 class Gradient(Callable):
@@ -1115,8 +1138,9 @@ class SphericalGeometry(Geometry):
 if __name__ == '__main__':
     import argparse, os, json
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--file-prefix')
+    parser.add_argument('-p', '--prefix')
     parser.add_argument('-x', '--skip-simulation', action='store_true')
+    parser.add_argument('-v', '--visualise', action='store_true')
     args = parser.parse_args()
 
     # Setup default figure size and use LaTeX for text formatting
@@ -1124,7 +1148,7 @@ if __name__ == '__main__':
     pyplot.rc('text', usetex=True)
 
     # Load run configuration
-    with open(f'{args.file_prefix}-config.json', 'r') as fyle:
+    with open(f'{args.prefix}-config.json', 'r') as fyle:
         run_config = json.load(fyle)
 
     # Load oscillator strength lookup table
@@ -1189,6 +1213,7 @@ if __name__ == '__main__':
                             atmosphere_thickness, density_gradient, temperature_gradient,
                             core_density=run_config["atmosphere"]["core_density"],
                             core_temperature=run_config["atmosphere"]["core_temperature"])
+    if args.visualise: atmosphere.visualise()
     
     # Setup a Black Body radiation source with same temperature as at inner boundary of atmosphere
     source = BlackBodySource(run_config["source"]["temperature"])
@@ -1199,7 +1224,7 @@ if __name__ == '__main__':
     if run_config["geometry"]["type"] == "spherical":
         # Spherical atmosphere
         geometry = SphericalGeometry(source, source_span, atmosphere, grid_size)
-        geometry.visualise()
+        if args.visualise: geometry.visualise()
         # Photons with angular direction take longer to reach the observer
         # Calculate steps factoring the longest distance possible (i.e. at half of angular span)
         steps = numpy.arange(0,
@@ -1211,7 +1236,7 @@ if __name__ == '__main__':
     else:
         # Plane parallel atmosphere
         geometry = PlanarGeometry(source, 0.66, atmosphere, grid_size)
-        geometry.visualise()
+        if args.visualise: geometry.visualise()
         steps = numpy.arange(0, int(atmosphere_thickness / grid_size) + 1, 1)[:, numpy.newaxis]
 
     # Begin Monte-Carlo simulation
@@ -1231,9 +1256,9 @@ if __name__ == '__main__':
             input_directions = None
         
         # Save input photons
-        numpy.save(f'{args.file_prefix}-input-wavelengths.npy', input_wavelengths)
+        numpy.save(f'{args.prefix}-input-wavelengths.npy', input_wavelengths)
         if is_directional_photon:
-            numpy.save(f'{args.file_prefix}-input-directions.npy', input_directions)
+            numpy.save(f'{args.prefix}-input-directions.npy', input_directions)
 
         # For each photon calculate the position vector at each step
         # Result: (step, photon, co-ordinates)
@@ -1265,19 +1290,19 @@ if __name__ == '__main__':
             output_directions = None
 
         # Save output photons
-        numpy.save(f'{args.file_prefix}-output-wavelengths.npy', output_wavelengths)
+        numpy.save(f'{args.prefix}-output-wavelengths.npy', output_wavelengths)
         if is_directional_photon:
-            numpy.save(f'{args.file_prefix}-output-directions.npy', output_directions)
+            numpy.save(f'{args.prefix}-output-directions.npy', output_directions)
     else:
         is_directional_photon = False
         input_directions = None
         output_directions = None
-        input_wavelengths = numpy.load(f'{args.file_prefix}-input-wavelengths.npy')
-        output_wavelengths = numpy.load(f'{args.file_prefix}-output-wavelengths.npy')
-        if os.path.exists(f'{args.file_prefix}-input-directions.npy'):
+        input_wavelengths = numpy.load(f'{args.prefix}-input-wavelengths.npy')
+        output_wavelengths = numpy.load(f'{args.prefix}-output-wavelengths.npy')
+        if os.path.exists(f'{args.prefix}-input-directions.npy'):
             is_directional_photon = True
-            input_directions = numpy.load(f'{args.file_prefix}-input-directions.npy')
-            output_directions = numpy.load(f'{args.file_prefix}-output-directions.npy')
+            input_directions = numpy.load(f'{args.prefix}-input-directions.npy')
+            output_directions = numpy.load(f'{args.prefix}-output-directions.npy')
 
     # Analyse results and plot
 
@@ -1329,17 +1354,18 @@ if __name__ == '__main__':
         direction_bins, relative_intensity_in_direction = relative_intensity(numpy.arcsin(input_directions), numpy.arcsin(output_directions))
         
         # Fit a linear model to show the average trend of relative intensity with angle
-        def linear_model(x, a, b):
-            return a * x + b
-        fit_params, fit_errors = scipy.optimize.curve_fit(linear_model, direction_bins, relative_intensity_in_direction, p0=(0.005, 0.95))
-        fit_values = linear_model(direction_bins, *fit_params)
+        def quadratic_model(x, a, b, c):
+            return a * x ** 2 + b * x + c
+        fit_params, fit_errors = scipy.optimize.curve_fit(quadratic_model, direction_bins, relative_intensity_in_direction, p0=(-0.95, 1., 0.95))
+        fit_values = quadratic_model(direction_bins, *fit_params)
 
         pyplot.figure()
         pyplot.title(r'$Relative~Intensity~at~Angle$')
         pyplot.xlabel(r'$Angle~(rad)$')
         pyplot.ylabel(r'$\frac{I_{atm}}{I_{bb}}~(dimensionless)$')
         pyplot.plot(direction_bins, relative_intensity_in_direction, label=r'$Measured~Ratio$')
-        pyplot.plot(direction_bins, fit_values, color='r', label=f'$Linear~Trend~(m = {fit_params[0]:.5f})$')
+        pyplot.plot(direction_bins, fit_values, color='r',
+                    label=f'$Quadratic~Trend~({fit_params[0]:.3f} x^2 + {fit_params[1]:.3f} x + {fit_params[2]:.3f})$')
         pyplot.axhline(fit_params[-1], color='k', linestyle='--', alpha=0.25)
         pyplot.legend()
         pyplot.show()

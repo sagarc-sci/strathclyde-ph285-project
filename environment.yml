@@ -5,6 +5,8 @@ dependencies:
   - scipy
   - pandas
   - matplotlib
+  - seaborn
+  - networkx
   - ipykernel # Required for running notebook cells in VS Code
   - ipympl # Provides matplotlib widget environment required to render animations in VS Code
   - nbconvert # Required for exporting notebooks as PDFs
