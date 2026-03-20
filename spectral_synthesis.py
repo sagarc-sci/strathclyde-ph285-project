@@ -1191,6 +1191,9 @@ if __name__ == '__main__':
 
     # Plot the emission spectrum
     pyplot.figure(1)
+    pyplot.title(r'$Intensity~at~Wavelength$')
+    pyplot.xlabel(r'$Wavelength~(m)$')
+    pyplot.ylabel(r'$Intensity~(arbitrary~units)$')
     pyplot.hist(input_wavelengths, 1000, label=r'$Black~Body~Spectrum$')
 
     # Overlay the absorption spectrum
@@ -1201,10 +1204,13 @@ if __name__ == '__main__':
     if is_directional_photon:
         # Plot directional intensities from source
         pyplot.figure(2)
-        pyplot.hist(input_directions, 1000, label=r'$Source$')
+        pyplot.title(r'$Intensity~at~Angle$')
+        pyplot.xlabel(r'$Angle~(rad)$')
+        pyplot.ylabel(r'$Intensity~(arbitrary~units)$')
+        pyplot.hist(numpy.arcsin(input_directions), 1000, label=r'$Source~Intensity$')
 
         # Overlay directional intensities past atmosphere
-        pyplot.hist(output_directions, 1000, label=r'$Atmosphere$')
+        pyplot.hist(numpy.arcsin(output_directions), 1000, label=r'$Atmospheric~Intensity$')
         pyplot.legend()
         pyplot.show()
 
@@ -1220,12 +1226,18 @@ if __name__ == '__main__':
     # Plot relative intensity at each wavelength to demonstrate absorption in atmosphere
     wavelength_bins, relative_intensity_at_wavelength = relative_intensity(input_wavelengths, output_wavelengths)
     pyplot.figure(3)
+    pyplot.title(r'$Relative~Intensity~at~Wavelength$')
+    pyplot.xlabel(r'$Wavelength~(nm)$')
+    pyplot.ylabel(r'$\frac{I_{atm}}{I_{bb}}~(dimensionless)$')
     pyplot.plot(wavelength_bins * 1e9, relative_intensity_at_wavelength)
     pyplot.show()
 
     if is_directional_photon:
         # Plot relative intensity in each direction to demonstrate Limb Darkening
-        direction_bins, relative_intensity_in_direction = relative_intensity(input_directions, output_directions)
+        direction_bins, relative_intensity_in_direction = relative_intensity(numpy.arcsin(input_directions), numpy.arcsin(output_directions))
         pyplot.figure(4)
+        pyplot.title(r'$Relative~Intensity~at~Angle$')
+        pyplot.xlabel(r'$Angle~(rad)$')
+        pyplot.ylabel(r'$\frac{I_{atm}}{I_{bb}}~(dimensionless)$')
         pyplot.plot(direction_bins, relative_intensity_in_direction)
         pyplot.show()
