@@ -1342,11 +1342,40 @@ if __name__ == '__main__':
     
     # Plot relative intensity at each wavelength to demonstrate absorption in atmosphere
     wavelength_bins, relative_intensity_at_wavelength = relative_intensity(input_wavelengths, output_wavelengths)
+
+    # Overlay named Hydrogen spectral lines within the simulated wavelength range
+    #
+    # See
+    #   Wiese, W. L., & Fuhr, J. R. 2009, Journal of Physical and Chemical Reference Data, 38, p. 572-576
+    #
+    named_hydrogen_spectral_lines = {
+        r'$Lyman-\alpha$': 121.567, #nm
+        r'$Lyman-\beta$': 102.572,
+        r'$Lyman-\gamma$': 97.2537,
+        r'$Lyman-\delta$': 94.9743,
+        r'$Lyman-\epsilon$': 93.7803,
+        r'$H-\alpha$': 656.464,
+        r'$H-\beta$': 486.27,
+        r'$H-\gamma$': 434.169,
+        r'$H-\delta$': 410.290,
+        r'$H-\epsilon$': 397.12,
+        r'$Paschen-\alpha$': 1875.1,
+        r'$Paschen-\beta$': 1281.81,
+        r'$Paschen-\gamma$': 1093.81,
+        r'$Paschen-\delta$': 1004.94,
+        r'$Paschen-\epsilon$': 954.57,
+    }
+
     pyplot.figure()
     pyplot.title(r'$Relative~Intensity~at~Wavelength$')
     pyplot.xlabel(r'$Wavelength~(nm)$')
     pyplot.ylabel(r'$\frac{I_{atm}}{I_{bb}}~(dimensionless)$')
     pyplot.plot(wavelength_bins * 1e9, relative_intensity_at_wavelength)
+    for line_name, wavelength in named_hydrogen_spectral_lines.items():
+        if input_wavelengths.min() < wavelength * 1e-9 < input_wavelengths.max():
+            pyplot.axvline(wavelength, color='k', linestyle='--', alpha=0.1)
+            pyplot.text(wavelength, 0.025, line_name, color='k', rotation=90, size=8,
+                        transform=pyplot.gca().get_xaxis_transform())
     pyplot.show()
 
     if is_directional_photon:
