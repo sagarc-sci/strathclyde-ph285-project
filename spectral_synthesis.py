@@ -1,6 +1,7 @@
 import itertools, logging, sys
 import matplotlib, networkx, numpy, pandas, scipy
 from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor
 from functools import cache
 from matplotlib import pyplot
 
@@ -1173,6 +1174,22 @@ class SphericalGeometry(Geometry):
         pyplot.legend()
         pyplot.show()
 
+class Opacities(object):
+    '''
+        Object of convinience to calculate opacities in parallel
+        for chunks of wavelengths
+    '''
+
+    def __init__(self, cells: numpy.ndarray):
+        self.cells: numpy.ndarray = cells
+
+    def value(self, wavelengths: numpy.ndarray) -> numpy.ndarray:
+        with ProcessPoolExecutor() as pool:
+            opacity_slices = list(pool.map(self.calculate, numpy.array_split(wavelengths, os.process_cpu_count())))
+        return numpy.hstack(opacity_slices)
+
+    def calculate(self, wavelengths: numpy.ndarray) -> numpy.ndarray:
+        return self.cells * wavelengths
 
 if __name__ == '__main__':
     import argparse, os, json
@@ -1306,10 +1323,15 @@ if __name__ == '__main__':
         # Map the position vectors to grid cells
         # Result: (step, photon, cell)
         cells = geometry.cells(positions)
-
+        
         # For each wavelength calculate opacity it experiences at that step
         # Result: (step, photon, opacity)
-        opacities = cells * input_wavelengths
+        #
+        # Uncomment the line below and comment out the one using Opacities object
+        # if parallel processing is not supported
+        #
+        #opacities = cells * input_wavelengths
+        opacities = Opacities(cells).value(input_wavelengths)
 
         # Sample probabilities of absorption for each photon at each step
         # Result: (step, photon, absorption probability)
