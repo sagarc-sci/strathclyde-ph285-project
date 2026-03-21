@@ -765,16 +765,18 @@ class Atmosphere(object):
                 graph.add_node(transition.destination.symbol)
                 graph.add_edge(particle.symbol, transition.destination.symbol, key=transition.symbol())
 
-        pyplot.figure()
-        pyplot.title(r'$Particle-Transition~Graph$')
-        positions = networkx.kamada_kawai_layout(graph)
-        node_labels = dict((u, f'${u}$') for u in graph.nodes)
-        edge_labels = dict(((u, v, key), f'$\\sigma_{{{key.lower()}}}$') for u, v, key in graph.edges)
-        networkx.draw(graph, positions, labels=node_labels,
-                      node_color='tab:orange', edge_color='tab:blue', alpha=0.75,
-                      node_size=1000, width=1, linewidths=1)
-        networkx.draw_networkx_edge_labels(graph, positions, edge_labels=edge_labels)
-        pyplot.show()
+        with seaborn.axes_style('white'):
+            figure, axes = pyplot.subplots()
+            pyplot.title(r'$Particle-Transition~Graph$')
+            positions = networkx.kamada_kawai_layout(graph)
+            node_labels = dict((u, f'${u}$') for u in graph.nodes)
+            edge_labels = dict(((u, v, key), f'$\\sigma_{{{key.lower()}}}$') for u, v, key in graph.edges)
+            networkx.draw(graph, positions, labels=node_labels,
+                        node_color='xkcd:tomato', edge_color='xkcd:charcoal', alpha=0.9,
+                        node_size=1000, width=1, linewidths=1)
+            networkx.draw_networkx_edge_labels(graph, positions, edge_labels=edge_labels)
+            axes.set_axis_on()
+            pyplot.show()
 
 
 class Gradient(Callable):
@@ -1060,18 +1062,18 @@ class PlanarGeometry(Geometry):
             to the photon source and the atmosphere
         '''
 
-        figure, axis = pyplot.subplots()
+        figure, axes = pyplot.subplots()
 
         pyplot.title(r'$Planar~Geometry$')
         pyplot.ylim(-1, 1)
         pyplot.xlim(-0.25, 1.5)
 
-        axis.add_patch(matplotlib.patches.Rectangle((0., -0.02), self.source_span, 0.04, fill=True, label=r'$Source$'))
-        axis.add_patch(matplotlib.patches.Rectangle((self.source_span, -0.02), self.atmosphere.thickness, 0.04,
-                                                    fill=False, edgecolor='orange', label=r'$Atmosphere$'))
+        axes.add_patch(matplotlib.patches.Rectangle((self.source_span, -0.02), self.atmosphere.thickness, 0.04, label=r'$Atmosphere$',
+                                                    fill=True, hatch='.', edgecolor='xkcd:off white', alpha=0.75))
+        axes.add_patch(matplotlib.patches.Rectangle((0., -0.02), self.source_span, 0.04, label=r'$Source$', fill=True, edgecolor='none'))
 
         cell_positions = self.positions(None, numpy.arange(0, int(self.atmosphere.thickness / self.grid_size) + 1))[::skip_grids]
-        cell_colours = ['r' if cell is not self.EMPTY_CELL else 'k' for cell in self.cells(cell_positions)]
+        cell_colours = ['k' if cell is not self.EMPTY_CELL else 'xkcd:off white' for cell in self.cells(cell_positions)]
 
         pyplot.scatter(cell_positions, numpy.zeros_like(cell_positions), color=cell_colours, marker='x', label=r'$Cells$')
 
@@ -1146,15 +1148,17 @@ class SphericalGeometry(Geometry):
             to the photon source and the atmosphere
         '''
 
-        figure, axis = pyplot.subplots()
-        axis.set_aspect('equal')
+        figure, axes = pyplot.subplots()
+        axes.set_aspect('equal')
 
         pyplot.title(r'$Spherical~Geometry$')
         pyplot.ylim(-1.5, 1.5)
         pyplot.xlim(-1.5, 1.5)
 
-        axis.add_patch(matplotlib.patches.Circle((0., 0.), radius=self.source_span, fill=True, label=r'$Source$'))
-        axis.add_patch(matplotlib.patches.Circle((0., 0.), radius=self.source_span + self.atmosphere.thickness, fill=False, edgecolor='orange', label=r'$Atmosphere$'))
+        axes.add_patch(matplotlib.patches.Circle((0., 0.), radius=self.source_span + self.atmosphere.thickness, label=r'$Atmosphere$',
+                                                 fill=True, hatch='.', edgecolor='xkcd:off white', alpha=0.75))
+        axes.add_patch(matplotlib.patches.Circle((0., 0.), radius=self.source_span, label=r'$Source$',
+                                                 fill=True, edgecolor='none'))
 
         steps = numpy.arange(0,
                              int((self.source_span + self.atmosphere.thickness)
@@ -1167,7 +1171,7 @@ class SphericalGeometry(Geometry):
         cells = self.cells(cell_positions)
 
         for photon in range(2):
-            cell_colours = ['r' if cell is not self.EMPTY_CELL else 'k' for cell in cells[:, photon]]
+            cell_colours = ['k' if cell is not self.EMPTY_CELL else 'xkcd:off white' for cell in cells[:, photon]]
             pyplot.scatter(cell_positions[:,photon,0], cell_positions[:,photon,1],
                            color=cell_colours, marker='x', label=r'$Cells$' if not photon else None)
             
@@ -1199,7 +1203,17 @@ if __name__ == '__main__':
     parser.add_argument('-v', '--visualise', action='store_true')
     args = parser.parse_args()
 
+    import seaborn
+
     # Setup default figure size and use LaTeX for text formatting
+    seaborn.set_theme(style='darkgrid',
+                      palette='Spectral',
+                      rc={
+                          'axes.facecolor': '.8',
+                          'figure.figsize': [12, 8],
+                          'figure.dpi': 144,
+                          'text.usetex': True
+                          })
     pyplot.rc('figure', figsize=[12, 8], dpi=144)
     pyplot.rc('text', usetex=True)
 
@@ -1372,10 +1386,10 @@ if __name__ == '__main__':
     pyplot.title(r'$Intensity~at~Wavelength$')
     pyplot.xlabel(r'$Wavelength~(m)$')
     pyplot.ylabel(r'$Intensity~(arbitrary~units)$')
-    pyplot.hist(input_wavelengths, 1000, label=r'$Black~Body~Spectrum$')
+    pyplot.hist(input_wavelengths, 1000, label=r'$Black~Body~Spectrum$', edgecolor='none')
 
     # Overlay the absorption spectrum
-    pyplot.hist(output_wavelengths, 1000, label=r'$Atmospheric~Spectrum$')
+    pyplot.hist(output_wavelengths, 1000, label=r'$Atmospheric~Spectrum$', edgecolor='none')
     pyplot.legend()
     pyplot.show()
 
@@ -1385,10 +1399,10 @@ if __name__ == '__main__':
         pyplot.title(r'$Intensity~at~Angle$')
         pyplot.xlabel(r'$Angle~(rad)$')
         pyplot.ylabel(r'$Intensity~(arbitrary~units)$')
-        pyplot.hist(numpy.arcsin(input_directions), 1000, label=r'$Source~Intensity$')
+        pyplot.hist(numpy.arcsin(input_directions), 1000, label=r'$Source~Intensity$', edgecolor='none')
 
         # Overlay directional intensities past atmosphere
-        pyplot.hist(numpy.arcsin(output_directions), 1000, label=r'$Atmospheric~Intensity$')
+        pyplot.hist(numpy.arcsin(output_directions), 1000, label=r'$Atmospheric~Intensity$', edgecolor='none')
         pyplot.legend()
         pyplot.show()
 
@@ -1431,12 +1445,12 @@ if __name__ == '__main__':
     pyplot.title(r'$Relative~Intensity~at~Wavelength$')
     pyplot.xlabel(r'$Wavelength~(nm)$')
     pyplot.ylabel(r'$\frac{I_{atm}}{I_{bb}}~(dimensionless)$')
-    pyplot.plot(wavelength_bins * 1e9, relative_intensity_at_wavelength)
     for line_name, wavelength in named_hydrogen_spectral_lines.items():
         if input_wavelengths.min() < wavelength * 1e-9 < input_wavelengths.max():
-            pyplot.axvline(wavelength, color='k', linestyle='--', alpha=0.1)
+            pyplot.axvline(wavelength, color='w', linestyle='--')
             pyplot.text(wavelength, 0.025, line_name, color='k', rotation=90, size=8,
                         transform=pyplot.gca().get_xaxis_transform())
+    pyplot.plot(wavelength_bins * 1e9, relative_intensity_at_wavelength)
     pyplot.show()
 
     if is_directional_photon:
@@ -1454,8 +1468,8 @@ if __name__ == '__main__':
         pyplot.xlabel(r'$Angle~(rad)$')
         pyplot.ylabel(r'$\frac{I_{atm}}{I_{bb}}~(dimensionless)$')
         pyplot.plot(direction_bins, relative_intensity_in_direction, label=r'$Measured~Ratio$')
-        pyplot.plot(direction_bins, fit_values, color='r',
+        pyplot.plot(direction_bins, fit_values, color='k',
                     label=f'$Quadratic~Trend~({fit_params[0]:.3f} x^2 + {fit_params[1]:.3f} x + {fit_params[2]:.3f})$')
-        pyplot.axhline(fit_params[-1], color='k', linestyle='--', alpha=0.25)
+        pyplot.axhline(fit_params[-1], color='k', linestyle='--', alpha=0.5)
         pyplot.legend()
         pyplot.show()

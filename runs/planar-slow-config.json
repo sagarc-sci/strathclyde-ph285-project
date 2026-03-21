@@ -2,11 +2,11 @@
     "geometry": {
         "type": "planar",
         "source_span": 0.66,
-        "grid_size": 0.001
+        "grid_size": 0.0015
     },
     "source": {
         "temperature": 20000,
-        "photons": 3000000
+        "photons": 1500000
     },
     "atmosphere": {
         "thickness": 0.33,
