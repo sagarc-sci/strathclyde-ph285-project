@@ -1,4 +1,4 @@
-import itertools, logging, sys
+import itertools, logging, os, sys
 import matplotlib, networkx, numpy, pandas, scipy
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
@@ -1192,7 +1192,7 @@ class Opacities(object):
         return self.cells * wavelengths
 
 if __name__ == '__main__':
-    import argparse, os, json
+    import argparse, json
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--prefix')
     parser.add_argument('-x', '--skip-simulation', action='store_true')
