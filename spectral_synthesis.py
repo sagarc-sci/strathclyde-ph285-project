@@ -877,20 +877,54 @@ class BlackBodySource(Source):
     PLANCK_RADIANCE_CONSTANT_TERM: float = 2 * scipy.constants.h * scipy.constants.c ** 2
     WIEN_DISPLACEMENT_CONSTANT_TERM: float = 2.897e-3
 
-    def __init__(self, temperature: float, wavelength_bounding_box_scaling_factors: tuple[float, float]=(0.1, 8), excess: float=5.):
+    def __init__(self, temperature: float, wavelength_bounding_box_scaling_factors: tuple[float, float]=(0.1, 8), bounding_boxes: int=1000):
         self.temperature: float = temperature
-
-        # Bounding box parameters for minimum and maximum wavelengths to generate
-        # Default parameters span 99% of radiated energy
-        self.wavelength_bounding_box_scaling_factors: tuple[float, float] = wavelength_bounding_box_scaling_factors
-        # Multiplication factor for generating excess photons to compensate for rejection sampling losses
-        self.excess: float = excess
-
         self.planck_radiance_exponent_constant_term: float = numpy.exp(scipy.constants.h * scipy.constants.c / (scipy.constants.k * temperature))
 
-        # Use Wien's Displacement Law to find the bounding box parameter for maximum spectral radiance to generate
-        self.wavelength_at_max_radiance: float = self.WIEN_DISPLACEMENT_CONSTANT_TERM / temperature
-        self.max_spectral_radiance: float = self.spectral_radiance(self.wavelength_at_max_radiance)
+        # Calculate bounding boxes taking advantage of the fact that spectral radiance curve is
+        # monotonically increasing below max radiance and then monotonically decreasing past max radiance
+
+        # Use Wien's Displacement Law to find the wavelength at maximum radiance
+        wavelength_at_max_radiance: float = self.WIEN_DISPLACEMENT_CONSTANT_TERM / temperature
+
+        # Sample wavelengths to form bounding box vertical edges above and below the wavelenght at max radiance
+        central_wavelength_index = int(bounding_boxes/2)
+        head_wavelengths, delta_head_wavelengths = numpy.linspace(wavelength_bounding_box_scaling_factors[0] * wavelength_at_max_radiance,
+                                                                  wavelength_at_max_radiance,
+                                                                  central_wavelength_index + 1,
+                                                                  retstep=True)
+        tail_wavelengths, delta_tail_wavelengths = numpy.linspace(wavelength_at_max_radiance,
+                                                                  wavelength_bounding_box_scaling_factors[1] * wavelength_at_max_radiance,
+                                                                  central_wavelength_index + 1,
+                                                                  retstep=True)
+        self.bounding_box_edges = numpy.hstack((head_wavelengths[:-1], tail_wavelengths))
+
+        # Calculate expected radiances at sampled wavelengths and setup bounding box top edges
+        head_radiances = self.spectral_radiance(head_wavelengths)
+        tail_radiances = self.spectral_radiance(tail_wavelengths)
+        self.bounding_box_max_radiances = numpy.hstack((head_radiances[1:], tail_radiances[:-1]))
+
+        # Calculate minimum expected radiance in a bounding box to measure bounding box fill ratio
+        # using trapezoidal approximation
+        min_radiances = numpy.hstack((head_radiances[:-1], tail_radiances[1:]))
+
+        # Calculate bounding box widths for trapezoidal approximation
+        bounding_box_widths = numpy.zeros_like(self.bounding_box_max_radiances)
+        bounding_box_widths[:head_radiances.size - 1] = delta_head_wavelengths
+        bounding_box_widths[head_radiances.size - 1:] = delta_tail_wavelengths
+
+        # Calculate bounding box areas using widths and top edges
+        bounding_box_areas = bounding_box_widths * self.bounding_box_max_radiances
+
+        # Calculate how much of a bounding box is filled by spectral radiance curve
+        # using trapezoidal approximation
+        bounding_box_fill = (self.bounding_box_max_radiances + min_radiances) * bounding_box_widths / 2
+
+        # Number of photons to generate per bounding box is proportional to bounding box area
+        # Since the curve doesn't fill the bounding box entirely
+        # (1 - bbox_fill/bbox_area) fraction of generated photons will be rejected
+        # Generate an excess of bbox_area/bbox_fill photons in each bounding box
+        self.bounding_box_contribution = bounding_box_areas ** 2 / (numpy.sum(bounding_box_areas) * bounding_box_fill)
 
     def spectral_radiance(self, wavelength: float) -> float:
         '''
@@ -906,28 +940,33 @@ class BlackBodySource(Source):
             Generates photons described by wavelengths following Planck's law
             Returns an array of wavelengths
 
-            Uses rejection sampling to generate photon wavelengths with an efficiency of 20%
-            when using the default bounding box parameters
-
-            Excess photons are generated (see excess parameter) to approximately
-            match the required sample size
+            Uses rejection sampling to generate photon wavelengths with near 100% efficiency
+            (efficiency improves with number of bounding boxes)
         '''
-        sample_size_with_excess = int(sample_size * self.excess)
+        # Calculate number of photons to generate per bounding box
+        photons_per_bounding_box = numpy.asarray(sample_size * self.bounding_box_contribution, dtype=int)
 
         # Generate wavelengths in bounding box limits
-        wavelengths = numpy.random.uniform(*[limit * self.wavelength_at_max_radiance for limit in self.wavelength_bounding_box_scaling_factors],
-                                           sample_size_with_excess)
+        wavelengths = numpy.hstack([numpy.random.uniform(self.bounding_box_edges[i], self.bounding_box_edges[i + 1], photons_per_bounding_box[i])
+                                    for i in range(self.bounding_box_edges.size - 1)])
+
         # Generate radiance values at each wavelength
-        radiance = numpy.random.uniform(0, self.max_spectral_radiance, sample_size_with_excess)
+        radiance = numpy.hstack([numpy.random.uniform(0., self.bounding_box_max_radiances[i], photons_per_bounding_box[i])
+                                  for i in range(self.bounding_box_max_radiances.size)])
+
         # Calculate maximum allowed radiance at each wavelength
         allowed_radiance = self.spectral_radiance(wavelengths)
+
         # Reject packets that exceed the maximum allowed radiance
         # as these cannot be generated by this Black Body object
         allowed_wavelengths = wavelengths[radiance < allowed_radiance]
 
-        LOG.info(f'Sampled {sample_size_with_excess} photons; accepted {allowed_wavelengths.size}; required {sample_size}')
+        LOG.info(f'Sampled {wavelengths.size} photons; accepted {allowed_wavelengths.size}; required {sample_size}')
 
-        return allowed_wavelengths[0:sample_size]
+        # Shuffle the wavelengths and limit to sample size to remove bias from bounding box ordering
+        # from smaller to larger wavelengths (e.g. for subsequent pairing with direction vectors)
+        numpy.random.shuffle(allowed_wavelengths)
+        return allowed_wavelengths[:sample_size]
 
 
 class SphericalVolumetricSource(Source):
