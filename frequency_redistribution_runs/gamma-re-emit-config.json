@@ -1,0 +1,10 @@
+{
+    "density": 1e30,
+    "temperature": 1e6,
+    "thickness": 1,
+    "test_wavelength": 2.26e-13,
+    "re_emit": true,
+    "photons": 100000,
+    "steps": 100000,
+    "checkpoints": [100, 1000, 10000]
+}
