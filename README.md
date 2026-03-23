@@ -1,6 +1,6 @@
 # Development
 
-## Setting up your workspace
+## Setting up your Workspace
 
 To setup your workspace, create an Anaconda environment using:
 
@@ -20,7 +20,7 @@ Alternatively, environment can be specified at a desired location using the `--p
 However, this overrides the `name` parameter in `environment.yml`.
 To update an environment created this way, the `--prefix` option must always be specified.
 
-## Running the programs
+## Running the Programs
 
 To run spectral synthesis and frequency redistribution programs you'll need run configurations.
 Run configurations used in the examples are known to converge on particle density numbers.
@@ -31,7 +31,7 @@ rerun without having to repeat the simulation every time.
 
 ### Examples
 
-#### Spectral synthesis
+#### Spectral Synthesis
 
 1. Create a run config file `[PREFIX]-config.json` with contents like so (edit based on your chosen parameters):
 
@@ -66,7 +66,7 @@ rerun without having to repeat the simulation every time.
     python3 spectral_synthesis.py -p [PREFIX]
 ```
 
-#### Frequency redistribution
+#### Frequency Redistribution
 
 1. Create a run config file `[PREFIX]-config.json` with contents like so (edit based on your chosen parameters):
 
@@ -91,7 +91,7 @@ rerun without having to repeat the simulation every time.
     python3 frequency_redistribution.py -p [PREFIX]
 ```
 
-#### Skip simulation and visualisation modes
+#### Skip-Simulation and Visualisation Modes
 
 Both programs can be run with `-x` flag to skip the simulation and only run the analysis code.
 Additionally, spectral synthesis code can be run with `-v` flag to visualise the photon-particle
@@ -121,6 +121,27 @@ In a star, photons originate as nuclear photons from nuclear fusion. These are G
 follow Planck's law. However, the process of frequency redistribution due to Compton scattering and Doppler shifts during
 collisions with high energy electrons and free-free absorption and re-emission as we will discuss later,
 result in these photons being converted to thermal photons making our choice of source appropriate.
+
+### Implementation
+
+There are a few different ways to generate random numbers following a given distribution using only pseudorandom numbers that a computer can generate approximately following uniform distribution. Inverse Transform Sampling is an efficient approach where a random number sampled from uniform distribution is transformed using the inverse function of target cumulative distribution function (CDF). Calculating the CDF of Planck's function for spectral radiance and inverting it is analytically intractable. An alternative approach is rejection sampling - where random numbers are sampled from uniform distribution and accepted or rejected depending on whether they agree with the function being modelled.
+
+For example, for a target function $f(x)$, rejection sampling is described by the following Python-style pseudocode:
+
+```python
+while True:
+    x = uniform_random(x_min, x_max)
+    y_guessed = uniform_random(f_min, f_max)
+    if y_guessed <= f(x):
+        return x
+```
+
+Implementing rejection sampling requires defining a bounding box within which to sample wavelengths and correspoding spectral radiance guesses.
+A simple bounding box can be defined by taking wavelength range where most of the energy is distributed and use the maximum value of spectral radiance predicted at wavelength given by Wien's displacement law ($\lambda_{max} = \frac{2.897 \times 10^{-3}}{T} $) as upper bound of radiance guesses. For wavelength bounds, we use wavelengths from $0.1$ to $8$ times the wavelength at maximum spectral radiance given by Wien's displacement law which constitute $99\%$ of energy radiated from a Black Body.
+
+This approach has a maximum efficiency given by area under the curve of target function (i.e. Planck's function for radiance) divided by area of the bounding box. Approximating the Planck's curve to be a triangle this results in a maximum of $50\%$ efficiency i.e. half of wavelengths generated are rejected. In reality, spectral radiance curve rises sharply and has a long tail. This results in a much smaller area under curve and measured efficiency of $20\%$. However, the bounding box can be split into smaller regions and photons can be generated within the bounds of these smaller boxes proportional to area of the box. Further, an excess of photons can be generated in each box with an excess of $\frac{1}{efficiency}$. By having sufficiently large number of smaller bounding boxes we improve efficiency per box and overall efficiency to near $100\%$ requiring no excess photons to be generated.
+
+The bounding boxes approach is not suitable for generating very small number of photons as a number of photons proportional to bounding box area need to be generated to provide the final sample. In frequency redistribution simulation we require smaller samples to simulate re-emissions after free-free absorption. To address this we sample a large number ($1M$) photons at the start of the simulation and resample a small number with replacement as required. Since the originally sampled photons agree with Planck's law, resampled photons too agree with Planck's distribution.
 
 ## Atmosphere
 
@@ -181,7 +202,7 @@ where $n_{i}$ are number densities of $i^{th}$ excitation state and $g_{i}$, $E_
 
 To solve the Saha and Boltzmann equations we need to know the temperature and total number densities. We obtain these by dividing the atmosphere into equally spaced grids and integrating the provided gradient function with boundary conditions to obtain the values in each grid cell.
 
-## Particle-Photon interactions
+## Particle-Photon Interactions
 
 In our implementation a photon can interact with a particle in four possible ways:
 
@@ -211,7 +232,54 @@ where $n$ is the excitation state (principal quantum number) of the interacting 
 
 ### Free-Free Absorption
 
+This is a process in which a free electron in the Coloumb potential well of a nearby ion absorbs a photon and decelerates. The opposite of this process is when an electron accelerates in the potential well and emits a photon. Free-Free absorption (and emission) process has a smaller cross section compared to other processes described here. However, it can play a significant role in electron rich environments and the emission process in particular increases the rate at which nuclear photons are thermalised resulting in the Black Body approximation we used for our source function.
+
+Free-Free corss section modified for S.I. units is given by:
+
+$$ \sigma_{ff}(\lambda) =  \frac{\sqrt{2} Z^2 e^6 \lambda^3}{3 \sqrt{3 \pi} \epsilon_{0} c^4 h (k_B m_e^3 T)^\frac{1}{2}}  g_{ff} $$
+
 ### Scattering
+
+Scattering is a process in which a photon collides with a particle and changes direction. Unlike free-free absorption process, photon is not absorbed in a scattering process. There are several scattering processes that come into play depending on the wavelengths and temperature and density regimes. We implemented Thomson scattering which is wavelength independent and dominant form of scattering in the regime we are simulating (soft UV, visible and near-infrared wavelengths and temperature around $20000~K$). We also implemented Compton scattering separately to demonstrate the frequency redistribution process in a separate simulation described in later sections.
+
+Thomson scattering cross section is the simplest of cross sections to calculate - it has a fixed value of $6.65 \times 10^{-29} m^{-2}$.
+
+### Implementation
+
+We take an object oriented approach to defining a `Particle` and a `Transition` to another particle upon interaction with a photon. Specific processes such as Bound-Bound and Free-Free interactions are subclasses of `Transition` base class and provide methods to calculate wavelength dependent cross section. Opacity from a transition is simply calculated as product of number density of source particle of a transition and the calculated cross section ($\alpha_{i,tr}(\lambda) = n_{i} \sigma_{i,tr}(\lambda)$).
+
+Following is a snippet of code from spectral synthesis code showing how bound-bound transitions are defined between various excitation states of Hydrogen atom, bound-free between these states to Hydrogen ion and free-free and scattering transitions from an electron to itself.
+
+```python
+electron = Particle('e', 0, 1, -1)
+particles = set()
+transitions = set([
+    ThomsonScattering(electron, electron),
+    FreeFreeAbsorption(electron, electron)
+])
+
+hydrogen_excitations = [Particle(f'H{i}', 1, i, 0) for i in range(1, 11)]
+hydrogen_ion = Particle('H+', 1, 1, 1)
+
+for particle in itertools.chain(hydrogen_excitations, [hydrogen_ion]):
+    particles.add(particle)
+
+for i in range(len(hydrogen_excitations) - 1):
+    for j in range(i + 1, len(hydrogen_excitations)):
+        transitions.add(BoundBoundAbsorption(hydrogen_excitations[i],
+                                             hydrogen_excitations[j],
+                                             oscillator_strength[i, j]))
+for excitation in hydrogen_excitations:
+    transitions.add(BoundFreeAbsorption(excitation, hydrogen_ion))
+```
+
+This snippet of code generates a transition graph that looks as follow:
+
+![](diagrams/particle-transition-graph.png)
+
+## Simulation
+
+We implemented a 1D stopped random walk rather than a true 1D random walk where a photon moves in fixed steps in one direction (from outer edge of source on the left to outer edge of the atmosphere) with a chance of stopping the walk when absorbed. Photos that escape the atmosphere are collected to chart the atmospheric spectrum. The simulation effectively performs a Monte-Carlo integration with physical length as the integration variable.
 
 # References
 
