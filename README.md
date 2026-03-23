@@ -340,7 +340,7 @@ Monte-Carlo integration variable is changed to optical depth ($\tau$) rather tha
 
 As a further simplification the atmosphere simulated has zero density and temperature gradient which reduces the number of opacity calculations to one calculation per photon rather than calculation per photon per position vector of the photon. In 1D, Compton scatter process is also simplified as scatter angle can either be $0$ or $\pi$ i.e. Compton scatter did not occur (photon is still scattered by Thomson scattering without a change in its momentum) or the photon is inelastically reflected with its wavelength shifting by twice that of Compton wavelength ($4.85 pm$). Doppler shift is applied on top of Compton shifted wavelength by sampling electron velocity from Gaussian distribution approximating Maxwell-Boltzmann distribution. In reality direction of travel of electron relative to photon affects the scatter angle. We omit that detail here - scatter at $0$ or $\pi$ have the same probabilities.
 
-Photons are started off at a left boundary and are allowed to escape out of the right boundary. To prevent photons from escaping out into the source at left boundary we implement a mirror at the left edge which reflects the photon back into the atmosphere. This reduces the expected number of steps for a photon to escape to $\frac{\tau^2}{2}$. Considering only Thomson scattering opacity (same for Compton scattering), the mean number of steps to escape measured in our simulation matches the theoretical value. There is a minor variance due to small number of free-free interactions and stochastic nature of simulation.
+Photons are started off at a left boundary and are allowed to escape out of the right boundary. To prevent photons from escaping out into the source at left boundary we implement a mirror at the left edge which reflects the photon back into the atmosphere. This reduces the expected number of steps for a photon to escape to $\frac{\tau^2}{2}$ (obtained by solving the finite difference equation for number of steps, $N(x) = 1 + \frac{N(x + l)}{2} + \frac{N(|x - l|)}{2}$ ). Considering only Thomson scattering opacity (same for Compton scattering), the mean number of steps to escape measured in our simulation matches the theoretical value. There is a minor variance due to small number of free-free interactions and stochastic nature of simulation.
 
 ## Simulation Results
 
@@ -350,7 +350,7 @@ Our simulation for $5.4 MeV$ photons travelling through fully ionised Hydrogen g
 | - | - |
 | ![](diagrams/gamma-redistribution.png) | ![](diagrams/uv-redistribution.png) |
 
-Further simulations in higher wavelength ranges are required to show the role of thermalisation processes and support approximating the inner atmospheric layers as a Black Body.
+Further simulations in higher wavelength ranges are required to show the role of thermalisation processes and support approximating the inner atmospheric layers as Black Body radiation sources.
 
 # References
 
