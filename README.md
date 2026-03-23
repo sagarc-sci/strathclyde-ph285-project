@@ -166,11 +166,11 @@ at the two extremes of angles and resulting drop in relative intensity ($\frac{I
 
 In our implementation atmospheric thickness is specified using grid size in arbitrary units.
 Since our implementation is a stopped random walk with fixed step size and Monte-Carlo integration variable is physical distance,
-it is only accurate if the grid size is significantly shorter than photon's mean free path: $l_{\lambda} = \frac{1}{\alpha_{\lambda}}$, where $\alpha_{\lambda}$ is the opacity experienced by the photon. Considering Thomson scattering (the only process modelled that affects continuum opacity as opposed to specific wavelengths) and a temperature of $20000~K$, mean free path length $\approx 2~km$. If we consider the grids to be $1~m$ ($<< 2~km$) thick so that a photon can safely make it across to the next grid, a grid size of $0.003~units$ would mean atmospheric thickness of $0.33~units$ is $110~m$ thick. Therefore, we need to be careful in specifying the density and temperature gradients when modelling realistic atmospheres.
+it is only accurate if the grid size is significantly shorter than photon's mean free path: $l_{\lambda} = \frac{1}{\alpha_{\lambda}}$, where $\alpha_{\lambda}$ is the opacity experienced by the photon. Considering Thomson scattering (the only process modelled that affects continuum opacity as opposed to specific wavelengths) and a temperature of $20000 K$, mean free path length $\approx 2 km$. If we consider the grids to be $1 m$ ($<< 2 km$) thick so that a photon can safely make it across to the next grid, a grid size of $0.003 units$ would mean atmospheric thickness of $0.33 units$ is $110 m$ thick. Therefore, we need to be careful in specifying the density and temperature gradients when modelling realistic atmospheres.
 
 ### Composition and Gradients
 
-Our implementation only handles Hydrogenic species i.e. particles with $0$ or $1$ electrons. Given a Particle-Transition graph (discussed in next section) and an elemental composition - fractions of elemental species such as $H$, $He$, etc. where the fraction is a sum of all variants of that species i.e. ions such as $H^{+}$ and excitation states such as ground state - $H_{I}$, first excited state - $H_{II}$, etc and for a total particle number density $(n)~m^{-3}$ and temperature $T~K$ calculated using the gradients, we estimate the number densities of individual particles using Saha ionisation equation and Boltzmann equation.
+Our implementation only handles Hydrogenic species i.e. particles with $0$ or $1$ electrons. Given a Particle-Transition graph (discussed in next section) and an elemental composition - fractions of elemental species such as $H$, $He$, etc. where the fraction is a sum of all variants of that species i.e. ions such as $H^{+}$ and excitation states such as ground state - $H_{I}$, first excited state - $H_{II}$, etc and for a total particle number density $(n) m^{-3}$ and temperature $T K$ calculated using the gradients, we estimate the number densities of individual particles using Saha ionisation equation and Boltzmann equation.
 
 Saha ionisation equation (reproduced from Carroll and Ostlie (2018)[^2]) is:
 
@@ -240,7 +240,7 @@ $$ \sigma_{ff}(\lambda) =  \frac{\sqrt{2} Z^2 e^6 \lambda^3}{3 \sqrt{3 \pi} \eps
 
 ### Scattering
 
-Scattering is a process in which a photon collides with a particle and changes direction. Unlike free-free absorption process, photon is not absorbed in a scattering process. There are several scattering processes that come into play depending on the wavelengths and temperature and density regimes. We implemented Thomson scattering which is wavelength independent and dominant form of scattering in the regime we are simulating (soft UV, visible and near-infrared wavelengths and temperature around $20000~K$). We also implemented Compton scattering separately to demonstrate the frequency redistribution process in a separate simulation described in later sections.
+Scattering is a process in which a photon collides with a particle and changes direction. Unlike free-free absorption process, photon is not absorbed in a scattering process. There are several scattering processes that come into play depending on the wavelengths and temperature and density regimes. We implemented Thomson scattering which is wavelength independent and dominant form of scattering in the regime we are simulating (soft UV, visible and near-infrared wavelengths and temperature around $20000 K$). We also implemented Compton scattering separately to demonstrate the frequency redistribution process in a separate simulation described in later sections.
 
 Thomson scattering cross section is the simplest of cross sections to calculate - it has a fixed value of $6.65 \times 10^{-29} m^{-2}$.
 
@@ -280,6 +280,16 @@ This snippet of code generates a transition graph that looks as follow:
 ## Simulation
 
 We implemented a 1D stopped random walk rather than a true 1D random walk where a photon moves in fixed steps in one direction (from outer edge of source on the left to outer edge of the atmosphere) with a chance of stopping the walk when absorbed. Photos that escape the atmosphere are collected to chart the atmospheric spectrum. The simulation effectively performs a Monte-Carlo integration with physical length as the integration variable.
+
+## Results
+
+| Observed Spectra | Relative Intensities and Hydrogen Spectral Lines |
+| - | - |
+| ![](diagrams/spectrum.png) | ![](diagrams/relative-intensity-spectrum.png) |
+
+# Physics of Frequency Redistribution
+
+![](diagrams/gamma-redistribution.png)
 
 # References
 
