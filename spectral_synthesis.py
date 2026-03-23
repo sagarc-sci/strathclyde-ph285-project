@@ -271,7 +271,7 @@ class FreeFreeAbsorption(Transition):
     '''
 
     CONSTANT_TERM: float = ((numpy.sqrt(32 * numpy.pi) * scipy.constants.e ** 6)
-                     / ((4 * numpy.pi * scipy.constants.epsilon_0)
+                     / ((4 * numpy.pi * scipy.constants.epsilon_0) ** 3
                         * (3 * numpy.sqrt(3) * scipy.constants.h * scipy.constants.c ** 4)
                         * numpy.sqrt(scipy.constants.k * scipy.constants.m_e ** 3)))
 
@@ -291,7 +291,7 @@ class FreeFreeAbsorption(Transition):
 
               sum(
                 ((g_ff * 32 pi)^(1/2) * e^6 * Z_i^2 * n_i * lambda^3)
-                  / (4 * pi * epsilon_0 * 3^(3/2) * c^4 * h * (k * m_e^3 * T)^(1/2))
+                  / ((4 * pi * epsilon_0)^3 * 3^(3/2) * c^4 * h * (k * m_e^3 * T)^(1/2))
               )
 
             where the sum is over all ions (i) with n_i, the number density of the ion
@@ -1181,19 +1181,25 @@ class SphericalGeometry(Geometry):
 class Opacities(object):
     '''
         Object of convinience to calculate opacities in parallel
-        for chunks of wavelengths
+        for chunks of cells and wavelengths
     '''
 
-    def __init__(self, cells: numpy.ndarray):
-        self.cells: numpy.ndarray = cells
-
-    def value(self, wavelengths: numpy.ndarray) -> numpy.ndarray:
+    def value(self, cells: numpy.ndarray, wavelengths: numpy.ndarray) -> numpy.ndarray:
         with ProcessPoolExecutor() as pool:
-            opacity_slices = list(pool.map(self.calculate, numpy.array_split(wavelengths, os.process_cpu_count())))
+            if cells.shape[1] > 1:
+                # When using spherical geometry each photon has a unique position
+                # and a corresponding unique grid position
+                # Chunk the cells along the position axis
+                # (number of positions equal number of wavelengths)
+                cell_chunks = numpy.array_split(cells, os.process_cpu_count(), axis=1)
+            else:
+                cell_chunks = [cells] * os.process_cpu_count()
+            wavelength_chunks = numpy.array_split(wavelengths, os.process_cpu_count())
+            opacity_slices = list(pool.map(self.calculate, zip(cell_chunks, wavelength_chunks)))
         return numpy.hstack(opacity_slices)
 
-    def calculate(self, wavelengths: numpy.ndarray) -> numpy.ndarray:
-        return self.cells * wavelengths
+    def calculate(self, cells_and_wavelengths: tuple[numpy.ndarray, numpy.ndarray]) -> numpy.ndarray:
+        return cells_and_wavelengths[0] * cells_and_wavelengths[1]
 
 if __name__ == '__main__':
     import argparse, json
@@ -1345,7 +1351,7 @@ if __name__ == '__main__':
         # if parallel processing is not supported
         #
         #opacities = cells * input_wavelengths
-        opacities = Opacities(cells).value(input_wavelengths)
+        opacities = Opacities().value(cells, input_wavelengths)
 
         # Sample probabilities of absorption for each photon at each step
         # Result: (step, photon, absorption probability)

@@ -1,3 +1,7 @@
+# Random Walk Monte-Carlo Simulations of Radiative Transfer Processes in Stellar Atmospheres
+
+This package provides codes for Monte-Carlo simulations of radiative transfer processes behind stellar spectra and frequency redistribution in stellar enviornments. Implementations are mainly based on the Physics discussed in Carroll and Ostlie (2018)[^1] and Shields et al. (2025)[^2]. Please feel free to ask any questions by creating an issue [here](https://github.com/sagarc-sci/strathclyde-ph285-project/issues). We also appreciate any feedback on the code and bug reports are always welcome.
+
 # Table of Contents
 
 - [Development](#development)
@@ -7,11 +11,11 @@
   - [Photon Source](#photon-source)
   - [Atmosphere](#atmosphere)
   - [Particle-Photon Interactions](#particle-photon-interactions)
-  - [Simulation](#simulation)
-  - [Results](#results)
+  - [1D Stopped Random Walk Simulation](#1d-stopped-random-walk-simulation)
+  - [Simulation Results](#simulation-results)
 - [Physics of Frequency Redistribution](#physics-of-frequency-redistribution)
   - [1D Random Walk Simulation](#1d-random-walk-simulation)
-  - [Simulation Results](#simulation-results)
+  - [Simulation Results](#simulation-results-1)
 - [References](#references)
 
 # Development
@@ -39,7 +43,7 @@ To update an environment created this way, the `--prefix` option must always be 
 ## Running the Programs
 
 To run spectral synthesis and frequency redistribution programs you'll need run configurations.
-Run configurations used in the examples are known to converge on particle density numbers.
+Run configurations used in [the examples](https://github.com/sagarc-sci/strathclyde-ph285-project/blob/main/spectral_synthesis_examples.ipynb) are known to converge on particle density numbers.
 If you are supplying your own run configuration files, their names are required to follow the format -
 `[PREFIX]-config.json`. With the run configuration setup, programs can be run by specifying the prefix
 with `-p` or `--prefix` options. Both programs output their results to disk so that analysis code can be
@@ -118,7 +122,7 @@ interaction processes that are modelled and geometry of the atmosphere used
 # Physics of Spectral Synthesis
 
 Ability to reproduce observed spectra of stars and interstellar gas is important in astrophysical modelling
-to understand the composition of astrophysical objects. One such example is Pacucci et al. (2026)[^1],
+to understand the composition of astrophysical objects. One such example is Pacucci et al. (2026)[^3],
 in which the authors use synthetic spectra to argue that little red dots found in James Webb Space Telescope (JWST)
 images maybe direct collapse black holes.
 
@@ -155,7 +159,7 @@ while True:
 Implementing rejection sampling requires defining a bounding box within which to sample wavelengths and correspoding spectral radiance guesses.
 A simple bounding box can be defined by taking wavelength range where most of the energy is distributed and use the maximum value of spectral radiance predicted at wavelength given by Wien's displacement law ($\lambda_{max} = \frac{2.897 \times 10^{-3}}{T} $) as upper bound of radiance guesses. For wavelength bounds, we use wavelengths from $0.1$ to $8$ times the wavelength at maximum spectral radiance given by Wien's displacement law which constitute $99\%$ of energy radiated from a Black Body.
 
-This approach has a maximum efficiency given by area under the curve of target function (i.e. Planck's function for radiance) divided by area of the bounding box. Approximating the Planck's curve to be a triangle this results in a maximum of $50\%$ efficiency i.e. half of wavelengths generated are rejected. In reality, spectral radiance curve rises sharply and has a long tail. This results in a much smaller area under curve and measured efficiency of $20\%$. However, the bounding box can be split into smaller regions and photons can be generated within the bounds of these smaller boxes proportional to area of the box. Further, an excess of photons can be generated in each box with an excess of $\frac{1}{efficiency}$. By having sufficiently large number of smaller bounding boxes we improve efficiency per box and overall efficiency to near $100\%$ requiring no excess photons to be generated.
+This approach has a maximum efficiency given by area under the curve of target function (i.e. Planck's function for radiance) divided by area of the bounding box. Approximating the Planck's curve to be a triangle we can calculate a maximum of $50\%$ efficiency i.e. half of wavelengths generated are rejected. In reality, spectral radiance curve rises sharply and has a long tail. This results in a much smaller area under curve and measured efficiency of $20\%$. However, the bounding box can be split into smaller regions and photons can be generated within the bounds of these smaller boxes proportional to area of the box. Further, an excess of photons can be generated in each box with an excess of $\frac{1}{efficiency}$ to approximately match the required sample size. By having sufficiently large number of smaller bounding boxes we improve efficiency per box and consequently the overall efficiency to near $100\%$ requiring no excess photons to be generated.
 
 The bounding boxes approach is not suitable for generating very small number of photons as a number of photons proportional to bounding box area need to be generated to provide the final sample. In frequency redistribution simulation we require smaller samples to simulate re-emissions after free-free absorption. To address this we sample a large number ($1M$) photons at the start of the simulation and resample a small number with replacement as required. Since the originally sampled photons agree with Planck's law, resampled photons too agree with Planck's distribution.
 
@@ -188,7 +192,7 @@ it is only accurate if the grid size is significantly shorter than photon's mean
 
 Our implementation only handles Hydrogenic species i.e. particles with $0$ or $1$ electrons. Given a Particle-Transition graph (discussed in next section) and an elemental composition - fractions of elemental species such as $H$, $He$, etc. where the fraction is a sum of all variants of that species i.e. ions such as $H^{+}$ and excitation states such as ground state - $H_{I}$, first excited state - $H_{II}$, etc and for a total particle number density $(n) m^{-3}$ and temperature $T K$ calculated using the gradients, we estimate the number densities of individual particles using Saha ionisation equation and Boltzmann equation.
 
-Saha ionisation equation (reproduced from Carroll and Ostlie (2018)[^2]) is:
+Saha ionisation equation (reproduced from Carroll and Ostlie (2018)[^1]) is:
 
 $$ \frac{n_{i+1}}{n_{i}} = \frac{2 Z_{i+1}}{n_{e} Z{i}}  \left( \frac{2 \pi m_{e} k_{B} T}{h^{2}} \right)^{\frac{3}{2}} e^{-\frac{\chi_{i}}{k_{B} T}} $$
 
@@ -224,7 +228,7 @@ In our implementation a photon can interact with a particle in four possible way
 
 ### Bound-Bound Absorption
 
-This is when a photon is absorbed by an electron bound to a nucleus and moves into a higher excited state. This occurs at specific wavelengths ($\lambda_{0} = \frac{E_{j} - E_{i}}{h c}$) corresponding to the jump which results in the characteristic absorption spectrum of the star revealing its composition. However, jumps between energy states do not occur all the time and photons may be re-emitted immediately following stimulated emission process. Oscillator strength gives a measure of such probability. These are fairly complex to estimate and involve quantum mechanical correction factors (i.e. Gaunt factors) that are harder to estimate. We use pre-calculated values from Menzel and Pekeris (1935)[^3] and use their approximation to calculate values for missing transitions. Additionally, the uncertainty principle and thermal motion of particles contributes to broadening of wavelength range at which Bound-Bound absorption occurs which is modelled using a line profile function $\phi(\lambda)$. In our implementation, we ignore the effect due to uncertainty principle and model the thermal motion of particles resulting in broadening that follows Gaussian distribution. We then define cross section - an analogue for cross sectional area of interaction between photon and a single particle - using the following equation modified from Shields et al. (2025)[^4] to work with S.I. units:
+This is when a photon is absorbed by an electron bound to a nucleus and moves into a higher excited state. This occurs at specific wavelengths ($\lambda_{0} = \frac{E_{j} - E_{i}}{h c}$) corresponding to the jump which results in the characteristic absorption spectrum of the star revealing its composition. However, jumps between energy states do not occur all the time and photons may be re-emitted immediately following stimulated emission process. Oscillator strength gives a measure of such probability. These are fairly complex to estimate and involve quantum mechanical correction factors (i.e. Gaunt factors) that are harder to estimate. We use pre-calculated values from Menzel and Pekeris (1935)[^4] and use their approximation to calculate values for missing transitions. More accurate and empirically established values can be obtained from Wiese and Fuhr (2009)[^5] and NIST atomic spectra database due to Kramida et al. (2024)[^6]. Additionally, the uncertainty principle and thermal motion of particles contributes to broadening of wavelength range at which Bound-Bound absorption occurs which is modelled using a line profile function $\phi(\lambda)$. In our implementation, we ignore the effect due to uncertainty principle and model the thermal motion of particles resulting in broadening that follows Gaussian distribution. We then define cross section - an analogue for cross sectional area of interaction between photon and a single particle - using the following equation modified from Shields et al. (2025)[^2] to work with S.I. units:
 
 $$ \sigma_{bb}(\lambda) = \frac{e^2}{4 \epsilon_{0} m_e c} f_{l, u}  \left( 1 − \frac{g_l n_u}{g_u n_l} \right) \phi(\lambda) $$
 
@@ -242,7 +246,7 @@ This is the photoionisation process where a photon is absorbed by an electron bo
 
 Bound-Free cross section modified for S.I. units is given by:
 
-$$ \sigma_{bf}(\lambda) = \frac{16 \pi^3 Z^4 e^{10} m_e}{3 \sqrt{3} \epsilon_{0} c^{4} h^6}  \frac{\lambda^{3}}{n^5} g_{bf} $$
+$$ \sigma_{bf}(\lambda) = \frac{Z^4 e^{10} m_e}{48 \pi \sqrt{3} \epsilon_{0}^5 c^{4} h^6}  \frac{\lambda^{3}}{n^5} g_{bf} $$
 
 where $n$ is the excitation state (principal quantum number) of the interacting particle and $g_{bf}$ is the quantum mechanical correction factor.
 
@@ -252,7 +256,7 @@ This is a process in which a free electron in the Coloumb potential well of a ne
 
 Free-Free corss section modified for S.I. units is given by:
 
-$$ \sigma_{ff}(\lambda) =  \frac{\sqrt{2} Z^2 e^6 \lambda^3}{3 \sqrt{3 \pi} \epsilon_{0} c^4 h (k_B m_e^3 T)^\frac{1}{2}}  g_{ff} $$
+$$ \sigma_{ff}(\lambda) =  \frac{\sqrt{2} Z^2 e^6 \lambda^3}{48 \pi^2 \sqrt{3 \pi} \epsilon_{0}^3 c^4 h (k_B m_e^3 T)^\frac{1}{2}}  g_{ff} $$
 
 ### Scattering
 
@@ -262,7 +266,7 @@ Thomson scattering cross section is the simplest of cross sections to calculate 
 
 ### Implementation
 
-We take an object oriented approach to defining a `Particle` and a `Transition` to another particle upon interaction with a photon. Specific processes such as Bound-Bound and Free-Free interactions are subclasses of `Transition` base class and provide methods to calculate wavelength dependent cross section. Opacity from a transition is simply calculated as product of number density of source particle of a transition and the calculated cross section ($\alpha_{i,tr}(\lambda) = n_{i} \sigma_{i,tr}(\lambda)$).
+We take an object oriented approach to defining a `Particle` and a `Transition` to another particle upon interaction with a photon. Specific processes such as Bound-Bound and Free-Free interactions are subclasses of `Transition` base class and provide methods to calculate wavelength dependent cross section. Opacity from a transition is simply calculated as product of number density of source particle of a transition and the calculated cross section ( $\alpha_{i,tr}(\lambda) = n_{i} \sigma_{i,tr}(\lambda)$ ).
 
 Following is a snippet of code from spectral synthesis code showing how bound-bound transitions are defined between various excitation states of Hydrogen atom, bound-free between these states to Hydrogen ion and free-free and scattering transitions from an electron to itself.
 
@@ -295,7 +299,7 @@ This snippet of code generates a transition graph that looks as follow:
 
 While using object oriented programming makes our code easy to read, it makes it less flexible to integrate with just-in-time compliers such as [Numba](https://numba.pydata.org).
 
-## Simulation
+## 1D Stopped Random Walk Simulation
 
 We implemented a 1D stopped random walk rather than a true 1D random walk where a photon moves in fixed steps in a single direction (i.e. from outer edge of source on the left to outer edge of the atmosphere) with a chance of stopping the walk when absorbed. Photos that escape the atmosphere are collected to chart the atmospheric spectrum. The simulation effectively performs a Monte-Carlo integration with physical length as the integration variable to calculate the output intensities at each wavelength given the source intensities at these wavelengths.
 
@@ -305,14 +309,14 @@ Aside: Monte-Carlo integration is a process by which integral of a function $f(x
 
 The choice of stopped random walk with fixed steps allowed us to reduce the integration to fewer sequential steps:
 1. Calculate opacity matrix for a large number of photons at every grid point of the simulation all at once
-2. Compare the opacity matrix with a matrix of uniformly sampled random variables to check if an absorption has occurred ($X(r, \lambda) < \alpha(r, \lambda)$) in any step for any photon
+2. Compare the opacity matrix with a matrix of uniformly sampled random variables to check if an absorption has occurred ( $X(r, \lambda) < \alpha(r, \lambda)$ ) in any step for any photon
 3. Add up the number of surviving photons at each wavelength to obtain the spectrum
 
 Additionally, the opacity matrix is computed for smaller chunks of photons in parallel to reduce the simulation time.
 
 However, the choice of fixed step is only valid when grids are closer than mean free path length. This places limitations on atmosphere thickness and gradients simulated (see the discussion under [Thickness](#thickness)). Frequency redistribution due to scattering and re-emission processes are also omitted from this simulation. A separate implementation of frequency redistribution is provided which demonstrates the process by simulating Compton scattering and Doppler shifting at shorter wavelengths.
 
-## Results
+## Simulation Results
 
 Besides demonstration of _limb darkening_ effect discussed under [Geometry](#geometry), our simulation produced the following spectra - the spectrum for source demonstrates the wavelength generation function working and agreeing with Planck's law and the atmospheric spectrum shows absorption from the modelled processes. The Hydrogen spectral lines are more noticable in the relative intensity chart which computes the ratio of output and source intensities. We also notice significant drop in intensity in UV wavelength range due to bound-free absorption ionising the Hydrogen atoms.
 
@@ -322,17 +326,17 @@ While this demonstrates the general features of Hydrogen gas spectrum, the inten
 | - | - |
 | ![](diagrams/spectrum.png) | ![](diagrams/relative-intensity-spectrum.png) |
 
-Conditions on atmospheric thickness and gradients can also be removed by moving to a ray tracing approach to sample and integrate over optical depth rather than physical distance similar to [STARDIS](https://tardis-sn.github.io/stardis) codes.
+Conditions on atmospheric thickness and gradients can also be removed by using a ray tracing approach to sample and integrate over optical depth rather than physical distance similar to [STARDIS](https://tardis-sn.github.io/stardis) codes.
 
 # Physics of Frequency Redistribution
 
-Primary photon generation process in a star is nucleosynthesis. This does not follow Planck's law. Photons generated in Hydrogen burning process of nuclear fusion are in Gamma wavelengths. For example, capture of a proton by Deuterium in PP I chain produces $5.49 MeV$ photons. However, the light we see is in UV, visible and infrared range. This is a result of combination of processes altering the wavelengths of gamma photons. For example, as photons climb through the Graviational potential well they lose energy and are redshifted. However, majority of frequency redistribution happens due photon-particle interactions and in particular photon-electron interactions. Core of a star is a fairly complex environment with excess of electron density due to high levels of ionisation and nuclear electrons (i.e. beta emissions). Our simulation models a simpler environment with free electrons due to ionised Hydrogen gas and frequency redistribution due to Compton scattering and Doppler shifting processes. We also include re-emissions following free-free absorptions to demonstrate thermalisation of nuclear photons and gradual shift to Black Body approximation in higher layers of stellar atmosphere. Note that free-free cross section at Gamma wavelengths is insignificant and doesn't contribute to the results shown here. However, it becomes more significant as wavelengths are shifted to soft-UV range. This gradual shifting is shown in the frequency redistribution examples notebook.
+Primary photon generation process in a star is nucleosynthesis. This does not follow Planck's law. Photons generated in Hydrogen burning process of nuclear fusion are in Gamma wavelengths. For example, capture of a proton by Deuterium in PP I chain produces $5.49 MeV$ photons. However, the light we see is in UV, visible and infrared range. This is a result of combination of processes altering the wavelengths of gamma photons. For example, as photons climb through the Graviational potential well they lose energy and are redshifted. However, majority of frequency redistribution happens due photon-particle interactions and in particular photon-electron interactions. Core of a star is a fairly complex environment with excess of electron density due to high levels of ionisation and nuclear electrons (i.e. beta emissions). Our simulation models a simpler environment with free electrons due to ionised Hydrogen gas and frequency redistribution due to Compton scattering and Doppler shifting processes. We also include re-emissions following free-free absorptions to demonstrate thermalisation of nuclear photons and gradual shift to Black Body approximation in higher layers of stellar atmosphere. Note that free-free cross section at Gamma wavelengths is insignificant and doesn't contribute to the results shown here. However, it becomes more significant as wavelengths are shifted to soft-UV range. This gradual shifting is shown in [the frequency redistribution examples notebook](https://github.com/sagarc-sci/strathclyde-ph285-project/blob/main/frequency_redistribution_examples.ipynb).
 
 ##  1D Random Walk Simulation
 
-We implemented a true 1D random walk where a photon can move in either left or right direction and has a chance of being absorbed due to free-free interaction. Where an absorption occurs it is immediately re-emitted as a thermal photon in a random direction due to free-free emission following Planck's law. However, the re-emission process can be turned off by specifying the flag in run configuration file (see the examples notebook) which demonstrates frequency redistribution due to scattering processes alone. In this case the photon is treated as lost (similar to the spectral synthesis code).
+We implemented a true 1D random walk where a photon can move in either left or right direction and has a chance of being absorbed due to free-free interaction. Where an absorption occurs it is immediately re-emitted as a thermal photon in a random direction due to free-free emission following Planck's law. However, the re-emission process can be turned off by specifying the flag in run configuration file (see [the examples notebook](https://github.com/sagarc-sci/strathclyde-ph285-project/blob/main/frequency_redistribution_examples.ipynb)) which demonstrates frequency redistribution due to scattering processes alone. In this case the photon is treated as lost (similar to the spectral synthesis code).
 
-Monte-Carlo integration variable is changed to optical depth ($\tau$) rather than physical distance ($r$) so that the photon is moved to point of interaction on each simulation step. Since the steps are run sequentially this prevents wasted cycles where photon doesn't interact with any particle. Unlike the spectral synthesis code there are no advantages to using fixed step size in this simulation. Optical depth is sampled from exponential distribution ($P(\tau) = e^{- \tau}$) and is related to physical distance as $ \tau_{\lambda} = \alpha_{\lambda} r $.
+Monte-Carlo integration variable is changed to optical depth ($\tau$) rather than physical distance ($r$) so that the photon is moved to point of interaction on each simulation step. Since the steps are run sequentially this prevents wasted cycles where photon doesn't interact with any particle. Unlike the spectral synthesis code there are no advantages to using fixed step size in this simulation. Optical depth is sampled from exponential distribution ( $P(\tau) = e^{- \tau}$ ) and is related to physical distance as $\tau_{\lambda} = \alpha_{\lambda} r$ .
 
 As a further simplification the atmosphere simulated has zero density and temperature gradient which reduces the number of opacity calculations to one calculation per photon rather than calculation per photon per position vector of the photon. In 1D, Compton scatter process is also simplified as scatter angle can either be $0$ or $\pi$ i.e. Compton scatter did not occur (photon is still scattered by Thomson scattering without a change in its momentum) or the photon is inelastically reflected with its wavelength shifting by twice that of Compton wavelength ($4.85 pm$). Doppler shift is applied on top of Compton shifted wavelength by sampling electron velocity from Gaussian distribution approximating Maxwell-Boltzmann distribution. In reality direction of travel of electron relative to photon affects the scatter angle. We omit that detail here - scatter at $0$ or $\pi$ have the same probabilities.
 
@@ -340,7 +344,7 @@ Photons are started off at a left boundary and are allowed to escape out of the 
 
 ## Simulation Results
 
-Our simulation for $5.4 MeV$ photons travelling through fully ionised Hydrogen gas at $1M K$ and particle density of $10^{30} m^{-3}$ we observe the photons being shifted to X-ray wavelengths mainly as a result of Compton scattering. As expected there is a minor but insignificant redistribution from thermalisation by free-free processes. Simulation at UV wavelengths (see the examples notebook) show increase in thermalisation although still insignificant compared to Doppler shifting. Compton scattering is also less significant at this wavelength range ($4.85 pm$ being $< 0.01\%$ of $29 nm$) and shifting can be attributed to Doppler effect on collisions with high energy electrons at $1M K$ moving at maximum speed of $0.01\%$ speed of light.
+Our simulation for $5.4 MeV$ photons travelling through fully ionised Hydrogen gas at $1M K$ and particle density of $10^{30} m^{-3}$ we observe the photons being shifted to X-ray wavelengths mainly as a result of Compton scattering. As expected there is a minor but insignificant redistribution from thermalisation by free-free processes. Simulation at UV wavelengths shows increase in thermalisation although still insignificant compared to Doppler shifting. Compton scattering is also less significant at this wavelength range ($4.85 pm$ being $< 0.01\%$ of $29 nm$) and shifting can be attributed to Doppler effect on collisions with high energy electrons at $1M K$ moving at maximum speed of $0.01\%$ speed of light.
 
 | Gamma Redistribution | UV Redistribution |
 | - | - |
@@ -350,10 +354,14 @@ Further simulations in higher wavelength ranges are required to show the role of
 
 # References
 
-[^1]: Pacucci, F., Ferrara, A., & Kocevski, D. D. 2026 (arXiv), http://arxiv.org/abs/2601.14368
+[^1]: Carroll, B. W., & Ostlie, D. A. 2018, An introduction to modern astrophysics (Second edition; Cambridge: Cambridge University Press)
 
-[^2]: Carroll, B. W., & Ostlie, D. A. 2018, An introduction to modern astrophysics (Second edition; Cambridge: Cambridge University Press)
+[^2]: Shields, J. V., Kerzendorf, W., Smith, I. G., et al. 2025 (arXiv), http://arxiv.org/abs/2504.17762
 
-[^3]: Menzel, D. H., & Pekeris, C. L. 1935, Monthly Notices of the Royal Astronomical Society, 96 (OUP), p. 77-110
+[^3]: Pacucci, F., Ferrara, A., & Kocevski, D. D. 2026 (arXiv), http://arxiv.org/abs/2601.14368
 
-[^4]: Shields, J. V., Kerzendorf, W., Smith, I. G., et al. 2025 (arXiv), http://arxiv.org/abs/2504.17762
+[^4]: Menzel, D. H., & Pekeris, C. L. 1935, Monthly Notices of the Royal Astronomical Society, 96 (OUP), p. 77-110
+
+[^5]: Wiese, W. L., & Fuhr, J. R. 2009, Journal of Physical and Chemical Reference Data, 38, p. 572-576
+
+[^6]: Kramida, A., Ralchenko, Yu., Reader, J., and NIST ASD Team (2024). NIST Atomic Spectra Database (ver. 5.12), [Online]. Available: https://physics.nist.gov/asd [2026, March 23]. National Institute of Standards and Technology, Gaithersburg, MD. DOI: https://doi.org/10.18434/T4W30F
