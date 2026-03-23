@@ -10,6 +10,8 @@
   - [Simulation](#simulation)
   - [Results](#results)
 - [Physics of Frequency Redistribution](#physics-of-frequency-redistribution)
+  - [1D Random Walk Simulation](#1d-random-walk-simulation)
+  - [Simulation Results](#simulation-results)
 - [References](#references)
 
 # Development
@@ -297,6 +299,8 @@ We implemented a 1D stopped random walk rather than a true 1D random walk where 
 
 $$ I_{\lambda} = S_{\lambda} \left( 1 - \int_{r_{i}}^{r_{f}}{\alpha_{\lambda}(r) d r} \right) $$
 
+Aside: Monte-Carlo integration is a process by which integral of a function $f(x)$ can be calculated by writing the function as product of another function $g(x)$ and a valid probability density function $h(x)$. So the integral $\int_{x_i}^{x_f}{f(x) dx} = \int_{x_i}^{x_f}{g(x) h(x) dx}$ which is the expected value of $g(x)$ in the integration range. This can be calculated by sampling a large number of random variables from $h(x)$ and calculating $g(x)$ at corresponding points. For a complex function such as the opacity function $\alpha_{\lambda}(r)$ calculating the integral analytically is intractable. However, Monte-Carlo integration makes the calculation numerically feasible.
+
 The choice of stopped random walk with fixed steps allowed us to reduce the integration to fewer sequential steps:
 1. Calculate opacity matrix for a large number of photons at every grid point of the simulation all at once
 2. Compare the opacity matrix with a matrix of uniformly sampled random variables to check if an absorption has occurred ($X(r, \lambda) < \alpha(r, \lambda)$) in any step for any photon
@@ -318,7 +322,27 @@ While this demonstrates the general features of Hydrogen gas spectrum, the inten
 
 # Physics of Frequency Redistribution
 
-![](diagrams/gamma-redistribution.png)
+Primary photon generation process in a star is nucleosynthesis. This does not follow Planck's law. Photons generated in Hydrogen burning process of nuclear fusion are in Gamma wavelengths. For example, capture of a proton by Deuterium in PP I chain produces $5.49 MeV$ photons. However, the light we see is in UV, visible and infrared range. This is a result of combination of processes altering the wavelengths of gamma photons. For example, as photons climb through the Graviational potential well they lose energy and are redshifted. However, majority of frequency redistribution happens due photon-particle interactions and in particular photon-electron interactions. Core of a star is a fairly complex environment with excess of electron density due to high levels of ionisation and nuclear electrons (i.e. beta emissions). Our simulation models a simpler environment with free electrons due to ionised Hydrogen gas and frequency redistribution due to Compton scattering and Doppler shifting processes. We also include re-emissions following free-free absorptions to demonstrate thermalisation of nuclear photons and gradual shift to Black Body approximation in higher layers of stellar atmosphere. Note that free-free cross section at Gamma wavelengths is insignificant and doesn't contribute to the results shown here. However, it becomes more significant as wavelengths are shifted to soft-UV range. This gradual shifting is shown in the frequency redistribution examples notebook.
+
+##  1D Random Walk Simulation
+
+We implemented a true 1D random walk where a photon can move in either left or right direction and has a chance of being absorbed due to free-free interaction. Where an absorption occurs it is immediately re-emitted as a thermal photon in a random direction due to free-free emission following Planck's law. However, the re-emission process can be turned off by specifying the flag in run configuration file (see the examples notebook) which demonstrates frequency redistribution due to scattering processes alone. In this case the photon is treated as lost (similar to the spectral synthesis code).
+
+Monte-Carlo integration variable is changed to optical depth ($\tau$) rather than physical distance ($r$) so that the photon is moved to point of interaction on each simulation step. Since the steps are run sequentially this prevents wasted cycles where photon doesn't interact with any particle. Unlike the spectral synthesis code there are no advantages to using fixed step size in this simulation. Optical depth is sampled from exponential distribution ($P(\tau) = e^{- \tau}$) and is related to physical distance as $ \tau_{\lambda} = \alpha_{\lambda} r $.
+
+As a further simplification the atmosphere simulated has zero density and temperature gradient which reduces the number of opacity calculations to one calculation per photon rather than calculation per photon per position vector of the photon. In 1D, Compton scatter process is also simplified as scatter angle can either be $0$ or $\pi$ i.e. Compton scatter did not occur (photon is still scattered by Thomson scattering without a change in its momentum) or the photon is inelastically reflected with its wavelength shifting by twice that of Compton wavelength ($4.85 pm$). Doppler shift is applied on top of Compton shifted wavelength by sampling electron velocity from Gaussian distribution approximating Maxwell-Boltzmann distribution. In reality direction of travel of electron relative to photon affects the scatter angle. We omit that detail here - scatter at $0$ or $\pi$ have the same probabilities.
+
+Photons are started off at a left boundary and are allowed to escape out of the right boundary. To prevent photons from escaping out into the source at left boundary we implement a mirror at the left edge which reflects the photon back into the atmosphere. This reduces the expected number of steps for a photon to escape to $\frac{\tau^2}{2}$. Considering only Thomson scattering opacity (same for Compton scattering), the mean number of steps to escape measured in our simulation matches the theoretical value. There is a minor variance due to small number of free-free interactions and stochastic nature of simulation.
+
+## Simulation Results
+
+Our simulation for $5.4 MeV$ photons travelling through fully ionised Hydrogen gas at $1M K$ and particle density of $10^{30} m^{-3}$ we observe the photons being shifted to X-ray wavelengths mainly as a result of Compton scattering. As expected there is a minor but insignificant redistribution from thermalisation by free-free processes. Simulation at UV wavelengths (see the examples notebook) show increase in thermalisation although still insignificant compared to Doppler shifting. Compton scattering is also less significant at this wavelength range ($4.85 pm$ being $< 0.01\%$ of $29 nm$) and shifting can be attributed to Doppler effect on collisions with high energy electrons at $1M K$ moving at maximum speed of $0.01\%$ speed of light.
+
+| Gamma Redistribution | UV Redistribution |
+| - | - |
+| ![](diagrams/gamma-redistribution.png) | ![](diagrams/uv-redistribution.png) |
+
+Further simulations in higher wavelength ranges are required to show the role of thermalisation processes and support approximating the inner atmospheric layers as a Black Body.
 
 # References
 
