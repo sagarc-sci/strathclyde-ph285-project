@@ -1,3 +1,17 @@
+# Table of Contents
+
+- [Development](#development)
+  - [Setting up your Workspace](#setting-up-your-workspace)
+  - [Running the Programs](#running-the-programs)
+- [Physics of Spectral Synthesis](#physics-of-spectral-synthesis)
+  - [Photon Source](#photon-source)
+  - [Atmosphere](#atmosphere)
+  - [Particle-Photon Interactions](#particle-photon-interactions)
+  - [Simulation](#simulation)
+  - [Results](#results)
+- [Physics of Frequency Redistribution](#physics-of-frequency-redistribution)
+- [References](#references)
+
 # Development
 
 ## Setting up your Workspace
