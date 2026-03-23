@@ -279,11 +279,26 @@ This snippet of code generates a transition graph that looks as follow:
 
 ## Simulation
 
-We implemented a 1D stopped random walk rather than a true 1D random walk where a photon moves in fixed steps in one direction (from outer edge of source on the left to outer edge of the atmosphere) with a chance of stopping the walk when absorbed. Photos that escape the atmosphere are collected to chart the atmospheric spectrum. The simulation effectively performs a Monte-Carlo integration with physical length as the integration variable.
+We implemented a 1D stopped random walk rather than a true 1D random walk where a photon moves in fixed steps in a single direction (i.e. from outer edge of source on the left to outer edge of the atmosphere) with a chance of stopping the walk when absorbed. Photos that escape the atmosphere are collected to chart the atmospheric spectrum. The simulation effectively performs a Monte-Carlo integration with physical length as the integration variable to calculate the output intensities at each wavelength given the source intensities at these wavelengths.
+
+$$ I_{\lambda} = S_{\lambda} \left( 1 - \int_{r_{i}}^{r_{f}}{\alpha_{\lambda}(r) d r} \right) $$
+
+The choice of stopped random walk with fixed steps allowed us to reduce the integration to fewer sequential steps:
+1. Calculate opacity matrix for a large number of photons at every grid point of the simulation all at once
+2. Compare the opacity matrix with a matrix of uniformly sampled random variables to check if an absorption has occurred ($X(r, \lambda) < \alpha(r, \lambda)$) in any step for any photon
+3. Add up the number of surviving photons at each wavelength to obtain the spectrum
+
+Additionally, the opacity matrix is computed for smaller chunks of photons in parallel to reduce the simulation time.
+
+However, the choice of fixed step is only valid when grids are closer than mean free path length. This places limitations on atmosphere thickness and gradients simulated (see the discussion under [Thickness](#thickness)). Frequency redistribution due to scattering and re-emission processes are also omitted from this simulation. A separate implementation of frequency redistribution is provided which demonstrates the process by simulating Compton scattering and Doppler shifting at shorter wavelengths.
 
 ## Results
 
-| Observed Spectra | Relative Intensities and Hydrogen Spectral Lines |
+Besides demonstration of _limb darkening_ effect discussed under [Geometry](#geometry), our simulation produced the following spectra - the spectrum for source demonstrates the wavelength generation function working and agreeing with Planck's law and the atmospheric spectrum shows absorption from the modelled processes. The Hydrogen spectral lines are more noticable in the relative intensity chart which computes the ratio of output and source intensities. We also notice significant drop in intensity in UV wavelength range due to bound-free absorption ionising the Hydrogen atoms.
+
+While this demonstrates the general features of Hydrogen gas spectrum, the intensity values are not accurate as the re-emission and frequency redistribution processes haven't been modelled.
+
+| Black Body and Atmospheric Spectra | Relative Intensities and Hydrogen Spectral Lines |
 | - | - |
 | ![](diagrams/spectrum.png) | ![](diagrams/relative-intensity-spectrum.png) |
 
