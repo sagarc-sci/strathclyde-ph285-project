@@ -293,6 +293,8 @@ This snippet of code generates a transition graph that looks as follow:
 
 ![](diagrams/particle-transition-graph.png)
 
+While using object oriented programming makes our code easy to read, it makes it less flexible to integrate with just-in-time compliers such as [Numba](https://numba.pydata.org).
+
 ## Simulation
 
 We implemented a 1D stopped random walk rather than a true 1D random walk where a photon moves in fixed steps in a single direction (i.e. from outer edge of source on the left to outer edge of the atmosphere) with a chance of stopping the walk when absorbed. Photos that escape the atmosphere are collected to chart the atmospheric spectrum. The simulation effectively performs a Monte-Carlo integration with physical length as the integration variable to calculate the output intensities at each wavelength given the source intensities at these wavelengths.
@@ -319,6 +321,8 @@ While this demonstrates the general features of Hydrogen gas spectrum, the inten
 | Black Body and Atmospheric Spectra | Relative Intensities and Hydrogen Spectral Lines |
 | - | - |
 | ![](diagrams/spectrum.png) | ![](diagrams/relative-intensity-spectrum.png) |
+
+Conditions on atmospheric thickness and gradients can also be removed by moving to a ray tracing approach to sample and integrate over optical depth rather than physical distance similar to [STARDIS](https://tardis-sn.github.io/stardis) codes.
 
 # Physics of Frequency Redistribution
 
