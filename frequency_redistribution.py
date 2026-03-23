@@ -52,45 +52,50 @@ if __name__ == '__main__':
     steps = run_config["steps"]
     checkpoints = run_config["checkpoints"]
 
+    # Setup a simple isotropic atmosphere with ground state Hydrogen atoms, protons and electrons
+    # Expect highly ionising temperatures to nullify Hydrogen atom number densities
+    electron = Particle('e', 0, 1, -1)
+    thomson_scattering = ThomsonScattering(electron, electron)
+    free_free_absorption = FreeFreeAbsorption(electron, electron)
+    transitions = set([thomson_scattering, free_free_absorption])
+
+    hydrogen_atom = Particle('H', 1, 1, 0)
+    hydrogen_ion = Particle('H+', 1, 1, 1)
+    particles = set([hydrogen_atom, hydrogen_ion])
+    transitions.add(BoundFreeAbsorption(hydrogen_atom, hydrogen_ion))
+
+    atmosphere = Atmosphere(electron, particles, transitions, {hydrogen_atom: 1.},
+                            thickness, ZeroGradient(), ZeroGradient(), core_density=density, core_temperature=temperature)
+    # Extract a cell from isotropic atmosphere to get the number densities
+    cell = atmosphere.cells(1.)[0]
+
+    # Thomson scattering opacity is constant given the atmosphere is isotropic
+    # Extract the value to avoid recalculation on every step
+    thomson_scattering_opacity = thomson_scattering.opacity(0., cell)
+
+    # Log the free-free absorption opactiy at test wavelength for reference
+    test_wavelength_free_free_opacity = free_free_absorption.opacity(test_wavelength, cell)
+    LOG.info(f'Thomson scattering opacity at test wavelength: {thomson_scattering_opacity:.2e}')
+    LOG.info(f'Free-free absorption opacity at test wavelength: {test_wavelength_free_free_opacity:.2e}')
+
+    # Calculate the Compton wavelength shift
+    #
+    #   delta_lambda = (1 - cos(theta)) * h / (m_e * c)
+    #
+    # In 1D, scatter angle (theta) is either 0 (no scatter) or pi (direction reversal)
+    delta_wavelength_compton = 2 * scipy.constants.h / (scipy.constants.m_e * scipy.constants.c)
+
+    # Calculate standard deviation for electron thermal velocity
+    # based on 1D Maxwell-Boltzmann distribution
+    #
+    #   sigma = sqrt(k * T / m_e)
+    #
+    # Thermal velocity of electron would result in Doppler shift of photon wavelength
+    # during the scattering event
+    electron_thermal_velocity_deviation = numpy.sqrt(scipy.constants.k * temperature / scipy.constants.m_e)
+
     if not args.skip_simulation:
         # Begin 1D Random Walk and Monte Carlo integration
-
-        # Setup a simple isotropic atmosphere with ground state Hydrogen atoms, protons and electrons
-        # Expect highly ionising temperatures to nullify Hydrogen atom number densities
-        electron = Particle('e', 0, 1, -1)
-        thomson_scattering = ThomsonScattering(electron, electron)
-        free_free_absorption = FreeFreeAbsorption(electron, electron)
-        transitions = set([thomson_scattering, free_free_absorption])
-
-        hydrogen_atom = Particle('H', 1, 1, 0)
-        hydrogen_ion = Particle('H+', 1, 1, 1)
-        particles = set([hydrogen_atom, hydrogen_ion])
-        transitions.add(BoundFreeAbsorption(hydrogen_atom, hydrogen_ion))
-
-        atmosphere = Atmosphere(electron, particles, transitions, {hydrogen_atom: 1.},
-                                thickness, ZeroGradient(), ZeroGradient(), core_density=density, core_temperature=temperature)
-        # Extract a cell from isotropic atmosphere to get the number densities
-        cell = atmosphere.cells(1.)[0]
-
-        # Thomson scattering opacity is constant given the atmosphere is isotropic
-        # Extract the value to avoid recalculation on every step
-        thomson_scattering_opacity = thomson_scattering.opacity(0., cell)
-
-        # Calculate the Compton wavelength shift
-        #
-        #   delta_lambda = (1 - cos(theta)) * h / (m_e * c)
-        #
-        # In 1D, scatter angle (theta) is either 0 (no scatter) or pi (direction reversal)
-        delta_wavelength_compton = 2 * scipy.constants.h / (scipy.constants.m_e * scipy.constants.c)
-
-        # Calculate standard deviation for electron thermal velocity
-        # based on 1D Maxwell-Boltzmann distribution
-        #
-        #   sigma = sqrt(k * T / m_e)
-        #
-        # Thermal velocity of electron would result in Doppler shift of photon wavelength
-        # during the scattering event
-        electron_thermal_velocity_deviation = numpy.sqrt(scipy.constants.k * temperature / scipy.constants.m_e)
 
         # Keep a reservoir of photons following Planck's law distribution
         # to re-emit after free-free absorption
@@ -122,6 +127,10 @@ if __name__ == '__main__':
                             escaped=escaped,
                             re_emission_events=re_emission_events,
                             escape_events_at_step=escape_events_at_step)
+                
+            # Exit early if all photons escaped
+            if escaped.all():
+                break
             
             # Calculate opacity of free-free absorption and net opacity for interaction with photon
             free_free_absorption_opacity = free_free_absorption.opacity(wavelengths, cell)
@@ -141,6 +150,12 @@ if __name__ == '__main__':
             #
             optical_depths = numpy.random.exponential(size=wavelengths.size)
             positions += directions * optical_depths / total_opacity
+
+            # Check if photon escaped at left boundary
+            # if so reflect it so that it can only escape to the right
+            reflection = numpy.where(positions < 0., -1, 1)
+            positions *= reflection
+            directions *= reflection
 
             # Check if photon escaped
             escaped_in_step = ~escaped & (positions > thickness)

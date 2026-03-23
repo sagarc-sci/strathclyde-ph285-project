@@ -1,7 +1,7 @@
 {
     "density": 1e30,
     "temperature": 1e6,
-    "thickness": 1,
+    "thickness": 5,
     "test_wavelength": 2.9e-8,
     "re_emit": true,
     "photons": 100000,
