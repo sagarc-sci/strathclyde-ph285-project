@@ -16,6 +16,9 @@ This package provides codes for Monte-Carlo simulations of radiative transfer pr
 - [Physics of Frequency Redistribution](#physics-of-frequency-redistribution)
   - [1D Random Walk Simulation](#1d-random-walk-simulation)
   - [Simulation Results](#simulation-results-1)
+- [Additional Resources](#additional-resources)
+  - [Random Walks and Monte-Carlo Integration](#random-walks-and-monte-carlo-integration)
+  - [STARDIS, TARDIS, Light-Matter Interactions, MCRT and Ray Tracing](#stardis-tardis-light-matter-interactions-monte-carlo-radiative-transfer-and-ray-tracing)
 - [References](#references)
 
 # Development
@@ -352,9 +355,47 @@ Our simulation for $5.4 MeV$ photons travelling through fully ionised Hydrogen g
 
 Further simulations in higher wavelength ranges are required to show the role of thermalisation processes and support approximating the inner atmospheric layers as Black Body radiation sources.
 
+# Additional Resources
+
+## Random Walks and Monte-Carlo Integration
+
+Textbook for PH185/285 - Hill (2020)[^7] - introduces Monte-Carlo methods and random walks through some examples and problems ([P2.5.10](https://scipython.com/books/book2/chapter-2-the-core-python-language-i/problems/monte-carlo-approximation-of-pi/), [P6.6.2](https://scipython.com/books/book2/chapter-6-numpy/problems/buffons-needle/), [E6.8](https://scipython.com/books/book2/chapter-6-numpy/examples/simulating-radioactive-decay/), [P6.6.3](https://scipython.com/books/book2/chapter-6-numpy/problems/a-simple-model-for-chemotaxis/), [P6.6.4](https://scipython.com/books/book2/chapter-6-numpy/problems/modeling-meanders/)) but doesn't go into much detail. Landau et al. (2007)[^8] and the accompanying [video lectures](https://www.youtube.com/watch?v=ND_gipM3fHQ&list=PLnWQ_pnPVzmJnp794rQXIcwJIjwy7Nb2U&index=17) might be able to bridge the gap between what's covered in the textbook and the methods presented in our code.
+
+## STARDIS, TARDIS, Light-Matter Interactions, Monte-Carlo Radiative Transfer and Ray Tracing
+
+STARDIS is the stellar spectral synthesis code described in Shields et al. (2025)[^2]. If you've read through the document you might have realised we borrowed our cross section equations from them. If you are trying to build something more than a toy model you might want to check out [STARDIS](https://tardis-sn.github.io/stardis).
+
+They even have a page describing [how to build a simple model](https://tardis-sn.github.io/stardis/creating_simple_models/flexible_plasma.html) to get you started.
+
+STARDIS is based on [TARDIS](https://tardis-sn.github.io/) project originally built to model supernovae. Their page on [light-matter interactions](https://tardis-sn.github.io/tardis/physics_walkthrough/intro/light_and_matter.html) does a better job at simplifying and explaining the Physics behind concepts we described here.
+
+They also have a page on [Monte-Carlo methods](https://tardis-sn.github.io/tardis/physics_walkthrough/montecarlo/basicprinciples.html) focussed on Radiative Transfer problems covering methods for random sampling, propagation through spherical geometry, etc.
+
+### Ray Tracing
+
+Note that both TARDIS and STARDIS use Ray Tracing to walk the photon packets. Here is a brief introduction to what that is in context of a 1D Random Walk:
+
+When sampling the distance by which to move a photon in a simulation step you have two choices:
+
+1. Move it by a fixed amount. This is pretty simple and is exactly what we do in spectral synthesis. Once you move the photon by a fixed amount you simply check whether it will interact with matter at its new location and apply the corresponding physical process. Since you know where a photon would be at each step of simulation you can calclate the state it would be in at each of the steps all at once in parallel (if it gets absorbed along the way simply discard the calculations for steps beyond that point). However, this doesn't always work (see [Thickness](#thickness)). And if you have a mostly transparent atmosphere, most of your calculations are wasted as nothing happens at a lot of the steps.
+2. Move it by exactly the amount it needs to go to next interaction. This is pretty simple too if you have an isotropic atmosphere and is exactly what we do in frequency redistribution. If your atmosphere is isotropic, you can calculate the total opacity ( $\alpha$ ), then draw an optical depth ( $\tau$ ) from exponential distribution (follows from Beer-Lambert's law) and finally calculate the physical distance to walk using $d = \frac{\tau}{\alpha}$ . Obvious caveat to this approach is that you are stepping through the simulation sequentially - any parallelisation can only apply to calculations within a step (and chunks of photons).
+
+So what do you do if your atmosphere is not isotropic - you have grid cells with different density and/or temperature values? If you walk a distance based on opacity of current cell you might land in the next cell where the opacity maybe different - maybe even $0$. But you are supposed to move to a point where an interaction must occur (you are following a Poisson process) so do you still apply the Physical process there - even if the opacity is $0$ (i.e. completely transparent)? You might be able to get away by calculating the maximum opacity along a photon's path and moving it by smaller physical distances calculated at this opacity. You'll likely have errors at boundaries between cells but these maybe small enough based on what you are modelling. However, you are wasting simulation cycles (especially important now that your steps are sequential) in less opaque cells. The alternative is Ray Tracing, which works as follows:
+
+1. Draw a $\tau$ as usual.
+
+2. Say the photon is in $i^{th}$ cell whose boundary is $x$ units from where the photon is located, calculate the optical depth ( $\tau_i(x) = \alpha_i x$ ) photon needs to walk to get there.
+
+3. If $\tau < \tau_i(x)$ , photon hasn't made it to the boundary. Simply move it by physical distance of $d = \frac{\tau}{\alpha_i}$, apply the physical process and repeat from step (1).
+
+4. If $\tau > \tau_i(x)$ , photon avoided any interactions and made it to the boundary. In doing so, it travelled $\tau_i(x)$ optical depth units. Update $\tau$ to $\tau - \tau_i(x)$, move the photon to start of $\left( i + 1 \right)^{th}$ cell and repeat the process from step (2) using $\alpha_{i+1}$ and $\tau_{i+1}(w)$ where $w$ is the width of this new cell the photon is located in.
+
+(Hope you didn't think this was going to be about ray tracing in computer graphics.)
+
+
 # References
 
-[^1]: Carroll, B. W., & Ostlie, D. A. 2018, An introduction to modern astrophysics (Second edition; Cambridge: Cambridge University Press)
+[^1]: Carroll, B. W., & Ostlie, D. A. 2018, An Introduction to Modern Astrophysics (Second edition; Cambridge: Cambridge University Press)
 
 [^2]: Shields, J. V., Kerzendorf, W., Smith, I. G., et al. 2025 (arXiv), http://arxiv.org/abs/2504.17762
 
@@ -365,3 +406,7 @@ Further simulations in higher wavelength ranges are required to show the role of
 [^5]: Wiese, W. L., & Fuhr, J. R. 2009, Journal of Physical and Chemical Reference Data, 38, p. 572-576
 
 [^6]: Kramida, A., Ralchenko, Yu., Reader, J., and NIST ASD Team (2024). NIST Atomic Spectra Database (ver. 5.12), [Online]. Available: https://physics.nist.gov/asd [2026, March 23]. National Institute of Standards and Technology, Gaithersburg, MD. DOI: https://doi.org/10.18434/T4W30F
+
+[^7]: Hill, C. 2020, Learning Scientific Programming with Python (Second edition; Cambridge: Cambridge University Press)
+
+[^8]: Landau, R. H., Páez, M. J., & Bordeianu, C. C. 2007, Computational Physics: Problem Solving with Computers (Weinheim: Wiley-VCH)

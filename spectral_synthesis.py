@@ -890,7 +890,7 @@ class BlackBodySource(Source):
         # Use Wien's Displacement Law to find the wavelength at maximum radiance
         wavelength_at_max_radiance: float = self.WIEN_DISPLACEMENT_CONSTANT_TERM / temperature
 
-        # Sample wavelengths to form bounding box vertical edges above and below the wavelenght at max radiance
+        # Sample wavelengths to form bounding box vertical edges above and below the wavelength at max radiance
         central_wavelength_index = int(bounding_boxes/2)
         head_wavelengths, delta_head_wavelengths = numpy.linspace(wavelength_bounding_box_scaling_factors[0] * wavelength_at_max_radiance,
                                                                   wavelength_at_max_radiance,
